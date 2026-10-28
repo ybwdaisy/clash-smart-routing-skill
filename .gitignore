@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+*.log
+.env*
+!*.example
+smart-routing-state/
+private/
+*.mrs
+*.mmdb
+*.dat
+*.backup
+coverage/
