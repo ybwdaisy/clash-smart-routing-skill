@@ -156,13 +156,18 @@ async function verify(ctx, api) {
   const first = (rules.rules || [])[0];
   if (managed.length !== 13 || !first || first.type !== 'RuleSet' || first.payload !== engine.prefix + 'ai-guard' || first.proxy !== engine.group)
     throw Error('Managed rules missing or shadowed');
+  const expected = engine.apply({proxies:[{name:'validation-node',type:'ss'}],rules:[]},{}).rules;
+  if (!expected.every((text,i) => {
+    const parts=text.split(','), actual=rules.rules[i];
+    return actual && actual.type==='RuleSet' && actual.payload===parts[1] && actual.proxy===parts[2] && !actual.extra?.disabled;
+  })) throw Error('Domestic DIRECT priority must precede subscription rules; reapply the current skill');
   const counts = {};
   for (const key of Object.keys(engine.sources)) {
     const name = engine.prefix + key; const item = providers.providers[name];
     if (!item || !(item.ruleCount > 0)) throw Error('Rule provider not loaded: ' + name);
     counts[name] = item.ruleCount;
   }
-  return {mode: live.mode, managedRules: managed.length, aiGroupHasDirect: false, aiGroupHasSelectedProxy: Boolean(proxy.now && proxy.now !== 'REJECT'), ruleProviders: counts};
+  return {mode: live.mode, managedRules: managed.length, domesticDirectBeforeSubscription: true, aiGroupHasDirect: false, aiGroupHasSelectedProxy: Boolean(proxy.now && proxy.now !== 'REJECT'), ruleProviders: counts};
 }
 async function apply(ctx, api, args) {
   await api('GET', '/version'); // Prove the actual controller is reachable before any writes.
@@ -249,7 +254,7 @@ async function main(argv) {
   preserved(ctx.subscription.rules || [], candidate.rules);
   return {configDirectory: ctx.root, subscriptionRulesPreserved: (ctx.subscription.rules || []).length,
     mode: candidate.mode, managedRules: candidate.rules.filter(engine.managedRule).length,
-    automaticProxySelection: true, aiHasDirectFallback: false, sources: engine.sources};
+    automaticProxySelection: true, domesticDirectBeforeSubscription: true, aiHasDirectFallback: false, sources: engine.sources};
 }
 if (require.main === module) main(process.argv.slice(2)).then(r => console.log(JSON.stringify(r, null, 2))).catch(e => {console.error(e.message); process.exitCode = 1;});
 module.exports = {engine, discover, load, render, preserved, argumentsOf, main, controller, verify};

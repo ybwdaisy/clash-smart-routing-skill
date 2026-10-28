@@ -4,7 +4,11 @@ The rule engine is a deterministic overlay, not a live GFW oracle. It uses daily
 
 ## What remains with the subscription
 
-The subscription YAML stays byte-for-byte unchanged. Its ordered rules, named proxy groups, providers and fallback are preserved. The requested AI/LAN/Baidu/iCloud/Apple-download exceptions are additional higher-priority rules; generic China detection is lower-priority than explicit subscription rules. Unknown foreign services retain the subscription fallback, including any existing rejection policy.
+The subscription YAML stays byte-for-byte unchanged. Its ordered rules, named proxy groups, providers and fallback are preserved. AI, intranet, maintained download categories, and generic China domain/IP detection all precede the subscription. Domestic DIRECT deliberately overrides subscription proxy decisions, preventing large downloads and domestic video/CDNs from wasting quota. AI rules precede China detection to keep those services on the proxy even if their destinations appear domestic. Remaining traffic still uses the complete original subscription policy and fallback.
+
+A service name is not the general decision criterion: Douyin/Bilibili/WeChat are acceptance examples. Their known domestic hosts match the maintained domain category; new/unlisted CDN hosts resolving to China IPs match the IP category. China IP rules allow DNS resolution, rather than using no-resolve. Country data and available DNS still bound classification accuracy. An entire app is not exempted: its unrelated foreign destinations remain subject to the subscription.
+
+Long-lived connections can retain a route selected before reload. Inspect active connections and, if necessary, reconnect only the affected known domestic transfer; do not terminate AI/VPN or all connections indiscriminately.
 
 Do not route by file size, rewrite MATCH to DIRECT, or decide that a domain ending in `.cn` is always reachable. Domain categories and real destination IPs are signals with different meanings. Apple/Baidu services may use overseas CDNs; those explicit service categories are direct even when their IPs are foreign. A VPN-specific internal DNS server still needs to be available for names only that VPN can resolve; this skill does not replace DNS servers.
 

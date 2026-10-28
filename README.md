@@ -12,7 +12,7 @@ node skills/clash-smart-routing/scripts/shadowrocket.cjs \
   --output /private/path/new-smart-routing.conf
 ```
 
-原文件不变；新配置保留原有规则顺序、其他配置段及 FINAL 兜底，加入 AI 代理、内网/百度/iCloud/Apple 下载直连，并在原 FINAL 前加入国内兜底。没有完整配置、只有节点订阅时，可以省略 `--input` 生成最小示例；这不能代替迁移你已有的完整规则。
+原文件不变；新配置保留原有规则顺序、其他配置段及 FINAL 兜底，加入 AI 代理、内网/百度/iCloud/Apple 下载直连，并将通用国内域名/IP 直连放在原订阅规则之前。没有完整配置、只有节点订阅时，可以省略 `--input` 生成最小示例；这不能代替迁移你已有的完整规则。
 
 通过文件/iCloud Drive 私下导入 Shadowrocket，启用新配置和配置分流，选择真实代理节点，再查看连接记录验证。完整 `.conf` 可能包含密码，只保存在本地，不上传仓库；私有 GitHub 地址不能直接当作匿名配置订阅链接。
 
@@ -35,11 +35,11 @@ node skills/clash-smart-routing/scripts/shadowrocket.cjs \
 | 1 | ChatGPT / Claude / 其他境外 AI、Apple Intelligence、GitHub | 独立代理组，禁止 DIRECT 兜底 |
 | 2 | 内网域名、实际解析到私有 IPv4 / IPv6 的域名 | 直连 |
 | 3 | 百度网盘、iCloud、Apple 开发下载与系统更新 | 维护中的服务分类直连 |
-| 4 | 订阅原有规则 | 完整保留，顺序不变 |
-| 5 | 前面未匹配的国内域名与国内 IP | 自动直连 |
+| 4 | 国内域名与国内 IP（包括未单独列举的国内视频/CDN） | 优先直连，覆盖订阅的代理决定 |
+| 5 | 其余流量的订阅原有规则 | 完整保留，顺序不变 |
 | 6 | 其余流量 | 原订阅 MATCH 兜底 |
 
-“保留订阅”指不修改订阅文件、删除或重排规则。你指定的 AI / 内网 / 大文件服务有独立高优先级覆盖层；其他订阅显式代理/拒绝规则仍优先于国内兜底。规则集每天更新，代理节点和配置目录按设备识别。
+“保留订阅”指不修改订阅文件、删除或重排规则。AI / 内网 / 下载分类 / 通用国内域名与 IP 都有更高优先级的本地覆盖层；国内流量不再先被订阅的代理规则截获。AI 优先于直连。百度/iCloud/Apple 是下载验收例子，不代表只支持这些服务；抖音、B站、微信等国内服务与新出现的国内 CDN 也按通用域名/IP 分类处理，不按 App 整体放行。规则集每天更新，代理节点和配置目录按设备识别。
 
 这是分类与路由策略，不会探测所有网站是否被 GFW 拦截；也不会通过 DIRECT 静默绕过 AI 代理故障。节点地区和账号权限仍会影响 AI 服务是否可用。
 
@@ -68,6 +68,6 @@ node skills/clash-smart-routing/scripts/clash-router.cjs rollback
 node --test tests/*.test.cjs
 ```
 
-测试覆盖规则完整保留、AI 无直连兜底、Apple AI 与 iCloud 优先级、节点切换、重复安装、现有脚本组合和无 MATCH 场景。本机 macOS / Mihomo v1.19.33 已完成内核校验和 7 类真实连接验证：OpenAI、Claude、GitHub 代理；百度网盘、iCloud、Apple 开发下载、私有 IP 直连。只发小请求，未实际下载多 GB 文件；Apple 测试地址返回 403，但连接链确认直连。其他设备安装后用 `probe.cjs` 验收，订阅更新后的客户端持久化仍需实机复查。
+测试覆盖规则完整保留、AI 无直连兜底、Apple AI 与 iCloud 优先级、节点切换、重复安装、现有脚本组合和无 MATCH 场景。本机 macOS / Mihomo v1.19.33 已完成内核校验和小请求路由验证。验收覆盖 OpenAI、Claude、GitHub 代理；百度网盘、iCloud、Apple 开发下载、私有 IP，以及通用国内域名/IP 直连。只发小请求，未实际下载多 GB 文件；Apple 测试地址返回 403，但连接链确认直连。其他设备安装后用 `probe.cjs` 验收，订阅更新后的客户端持久化仍需实机复查。
 
 使用上游维护的 [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat) 分类，通过 URL 引用，不打包规则数据。路由语义以 [Mihomo 文档](https://wiki.metacubex.one/en/config/rules/) 和 [Clash Verge 扩展执行顺序](https://www.clashverge.dev/guide/extend.html) 为准。

@@ -50,6 +50,10 @@ async function main(argv) {
       {name: 'Baidu cloud', url: 'https://pan.baidu.com/robots.txt', provider: 'smart-routing-baidu', direct: true},
       {name: 'iCloud', url: 'https://www.icloud.com/robots.txt', provider: 'smart-routing-icloud', direct: true},
       {name: 'Apple developer downloads', url: 'https://devimages-cdn.apple.com/robots.txt', provider: 'smart-routing-apple-dev', direct: true},
+      {name: 'Douyin (generic China classification)', url: 'https://www.douyin.com/robots.txt', provider: 'smart-routing-cn-domain', direct: true},
+      {name: 'Bilibili (generic China classification)', url: 'https://www.bilibili.com/robots.txt', provider: 'smart-routing-cn-domain', direct: true},
+      {name: 'WeChat (generic China classification)', url: 'https://weixin.qq.com/robots.txt', provider: 'smart-routing-cn-domain', direct: true},
+      {name: 'China IP (public AliDNS endpoint)', url: 'https://223.5.5.5/robots.txt', provider: 'smart-routing-cn-ip', direct: true},
       {name: 'Private IP', url: 'http://127.0.0.1:' + server.address().port + '/', provider: 'smart-routing-lan-ip', direct: true}
     ];
     const results = [];

@@ -1,4 +1,4 @@
 interface:
   display_name: "Clash / Shadowrocket 省流分流"
-  short_description: "配置 Clash 或导出小火箭规则，AI 走代理，内网和大文件直连，保留订阅"
+  short_description: "国内下载和视频优先直连，AI 保持代理，保留订阅，支持 Clash 和小火箭"
   default_prompt: "使用 $clash-smart-routing 自动配置并验证这台电脑的 Clash 省流分流，保留订阅原规则。"

@@ -5,10 +5,12 @@ const {merge,domainRules,stripManaged,main,KEYS}=require('../skills/clash-smart-
 const {engine}=require('../skills/clash-smart-routing/scripts/clash-router.cjs');
 const source=()=>Object.fromEntries(KEYS.map(k=>[k,'+.'+k+'.example\nexact.'+k+'.example\n']));
 const input='# original\n[General]\ndns-server = system\n[Proxy Group]\nOriginal = select,PROXY,DIRECT\n[Rule]\n# keep this comment\nDOMAIN-SUFFIX,foreign.example,Original\nDOMAIN-SUFFIX,blocked.example,REJECT\nFINAL,Original\n[Host]\ninternal.example = 10.0.0.2\n';
-test('Shadowrocket keeps every original line and non-rule section while placing China before original FINAL',()=>{
+test('Shadowrocket keeps original lines and sections while domestic DIRECT outranks subscription rules',()=>{
   const r=merge(input,source());assert.equal(stripManaged(r.output.split('\n')).join('\n'),input);
   assert.ok(r.output.indexOf('DOMAIN-SUFFIX,chatgpt.com,PROXY')<r.output.indexOf('DOMAIN-SUFFIX,foreign.example,Original'));
-  assert.ok(r.output.indexOf('DOMAIN-SUFFIX,foreign.example,Original')<r.output.indexOf('GEOIP,CN,DIRECT'));
+  assert.ok(r.output.indexOf('GEOIP,CN,DIRECT')<r.output.indexOf('DOMAIN-SUFFIX,foreign.example,Original'));
+  assert.ok(r.output.indexOf('GEOIP,CN,DIRECT')<r.output.indexOf('DOMAIN-SUFFIX,blocked.example,REJECT'));
+  assert.ok(r.output.indexOf('DOMAIN-SUFFIX,chatgpt.com,PROXY')<r.output.indexOf('GEOIP,CN,DIRECT'));
   assert.ok(r.output.indexOf('GEOIP,CN,DIRECT')<r.output.indexOf('FINAL,Original'));
 });
 test('Shadowrocket handles overlapping AI/Apple categories and IP resolution without broad proxy IP lists',()=>{
@@ -22,6 +24,13 @@ test('Shadowrocket export is idempotent and preserves CRLF and missing final new
     const one=merge(text,source()).output,two=merge(one,source()).output;assert.equal(one,two);
     const nl=text.includes('\r\n')?'\r\n':'\n';assert.equal(stripManaged(one.split(/\r?\n/)).join(nl),text);
   }
+});
+test('Shadowrocket upgrades the previous China-before-FINAL layout instead of leaving domestic traffic shadowed',()=>{
+  const legacy=input.replace('FINAL,Original','# smart-routing-shadowrocket:china:begin\nGEOIP,CN,DIRECT\n# smart-routing-shadowrocket:china:end\nFINAL,Original');
+  const upgraded=merge(legacy,source()).output;
+  assert.ok(upgraded.indexOf('GEOIP,CN,DIRECT')<upgraded.indexOf('DOMAIN-SUFFIX,foreign.example,Original'));
+  assert.equal(upgraded.split('GEOIP,CN,DIRECT').length-1,1);
+  assert.equal(stripManaged(upgraded.split('\n')).join('\n'),input);
 });
 test('Shadowrocket refuses missing/ambiguous fallback, malformed blocks, and policy name collisions',()=>{
   for(const bad of [input.replace('FINAL,Original',''),input+'[Rule]\nFINAL,PROXY\n',input.replace('FINAL,Original','FINAL,Original\nFINAL,DIRECT'),

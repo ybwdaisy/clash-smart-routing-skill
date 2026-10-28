@@ -74,9 +74,9 @@ var SmartRouting = (function () {
     var priority = [rule("ai-guard", GROUP), rule("ai", GROUP), rule("apple-ai", GROUP), rule("github", GROUP),
       rule("private", "DIRECT"), rule("lan-domain", "DIRECT"), rule("lan-ip", "DIRECT"),
       rule("baidu", "DIRECT"), rule("icloud", "DIRECT"), rule("apple-dev", "DIRECT"), rule("apple-update", "DIRECT")];
-    var fallback = original.findIndex(function (r) { return /^MATCH\s*,/i.test(String(r)); });
-    if (fallback < 0) fallback = original.length;
-    config.rules = priority.concat(original.slice(0, fallback), [rule("cn-domain", "DIRECT"), rule("cn-ip", "DIRECT")], original.slice(fallback));
+    // Domestic classification must beat subscription proxy decisions, not just MATCH.
+    // Otherwise a broad subscription proxy rule can consume GB of domestic traffic.
+    config.rules = priority.concat([rule("cn-domain", "DIRECT"), rule("cn-ip", "DIRECT")], original);
     config.mode = "rule";
     return config;
   }

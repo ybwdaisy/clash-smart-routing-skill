@@ -25,10 +25,15 @@ test('AI and Apple Intelligence precede direct downloads and all subscription ru
     assert.ok(result.rules[index(name)].endsWith(',DIRECT')); assert.ok(index(name) < result.rules.indexOf('DOMAIN-SUFFIX,foreign.example,Existing'));
   }
 });
-test('unmatched China traffic uses direct before MATCH without overriding explicit subscription proxy/reject', () => {
+test('domestic classification precedes explicit subscription proxy/reject without editing original rules', () => {
   const result = engine.apply(fixture(), {}); const rules = result.rules;
-  assert.ok(rules.indexOf('DOMAIN-SUFFIX,foreign.example,Existing') < rules.indexOf('RULE-SET,smart-routing-cn-domain,DIRECT'));
-  assert.deepEqual(Array.from(rules.slice(-3)), ['RULE-SET,smart-routing-cn-domain,DIRECT', 'RULE-SET,smart-routing-cn-ip,DIRECT', 'MATCH,Existing']);
+  for (const key of ['cn-domain','cn-ip']) {
+    const direct=rules.indexOf('RULE-SET,smart-routing-'+key+',DIRECT');
+    assert.ok(direct<rules.indexOf('DOMAIN-SUFFIX,foreign.example,Existing'));
+    assert.ok(direct<rules.indexOf('DOMAIN-SUFFIX,blocked.example,REJECT'));
+    assert.ok(direct>rules.indexOf('RULE-SET,smart-routing-ai-guard,'+engine.group));
+  }
+  assert.deepEqual(Array.from(rules.slice(13)),fixture().rules);
 });
 test('AI routes cannot inherit DIRECT/COMPATIBLE from subscription selector or empty providers', () => {
   const result = engine.apply(fixture(), {preferredNode:'Preferred node'}); const group = result['proxy-groups'].at(-1);
@@ -88,6 +93,10 @@ test('live verification refuses rules shadowed by a later client extension', asy
     '/configs':{mode:'rule'}, '/providers/rules':{providers:Object.fromEntries(Object.keys(engine.sources).map(k=>[engine.prefix+k,{ruleCount:1}]))}};
   const api=async(method,route)=>data[route];
   assert.equal((await verify({},api)).managedRules,13);
+  const before=[...data['/rules'].rules];
+  data['/rules'].rules.splice(11,0,{type:'DomainSuffix',payload:'douyin.com',proxy:'First node'});
+  await assert.rejects(()=>verify({},api),/Domestic DIRECT priority/);
+  data['/rules'].rules=before;
   data['/rules'].rules.unshift({type:'Match',payload:'',proxy:'DIRECT'});
   await assert.rejects(()=>verify({},api),/shadowed/);
 });

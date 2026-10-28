@@ -1,6 +1,6 @@
 ---
 name: clash-smart-routing
-description: Configure traffic-saving split routing for Clash Verge/Rev with Mihomo, or export a Shadowrocket .conf preserving its original rules. Use for AI proxy routing, intranet/China direct traffic, Apple/Baidu large downloads, migration and rollback. Not for node purchases or account region restrictions.
+description: Configure traffic-saving split routing for Clash Verge/Rev with Mihomo, or export a Shadowrocket .conf preserving its original rules. Prioritize domestic domain/IP DIRECT over subscription proxy rules, keep AI proxied, and prevent domestic downloads/video from wasting quota. Supports migration and rollback; not node purchases or account region restrictions.
 ---
 
 # Clash Smart Routing
@@ -15,12 +15,12 @@ Apply these priorities through a separate global script; preserve every original
 
 1. Foreign AI services (including OpenAI, Claude, Apple Intelligence) and GitHub use a managed proxy-only fallback group.
 2. Intranet domain categories and private IPv4/IPv6 destinations go direct. Private-IP rules deliberately resolve domains, including public-looking names mapped to VPN/private IPs.
-3. Baidu, iCloud, Apple developer downloads and Apple updates go direct, using maintained categories.
-4. Run the existing subscription rules unchanged.
-5. Before the original MATCH fallback, send otherwise unmatched China domains and China IPs direct.
+3. Maintained service categories cover large downloads such as Baidu/iCloud/Apple developer downloads and updates. These are examples, not the complete supported app list.
+4. All maintained China domains and China IP destinations go direct BEFORE subscription rules, including a newly seen video CDN hostname resolving to a China IP.
+5. Run the existing subscription rules for remaining traffic.
 6. Keep the original subscription fallback. Never replace it with DIRECT.
 
-This intentionally makes the requested AI/intranet/large-download exceptions outrank the subscription. Other explicit subscription decisions retain priority over the China catch-all. Explain this distinction when requirements conflict; do not promise that every China IP overrides an explicit subscription proxy rule.
+Preserving the subscription means leaving its file and original relative rule order intact; it does not mean giving its proxy decisions priority over domestic DIRECT. The goal is preventing expensive domestic downloads/video from consuming proxy quota. The local domestic overlay deliberately outranks subscription rules. AI remains ahead of all DIRECT classification. Judge each destination by domain/IP rather than exempting an entire app or routing by file size.
 
 Read [policy and verification notes](references/policy.md) for diagnosis, DNS limitations or rollback after a subscription update.
 
@@ -45,12 +45,12 @@ Preserve existing authorization. An explicit request to configure this device pe
 
 ## Verify the outcome
 
-- Run `node <skill-dir>/scripts/probe.cjs` for seven bounded routing probes; inspect its `passed` and per-service evidence. It uses small public requests and a temporary loopback server, and does not test account login or transfer large files.
+- Run `node <skill-dir>/scripts/probe.cjs` for eleven bounded routing probes, including generic China classification for Douyin/Bilibili/WeChat and a numeric China-IP target; inspect its `passed` and per-service evidence. It uses small public requests and a temporary loopback server, and does not test account login or transfer large files.
 - Require successful kernel validation and `verify`; inspect all rule providers having nonzero rule counts.
 - Confirm the subscription file hash and original rule order are unchanged.
 - Generate a few small requests through the local proxy: ChatGPT/Claude, Baidu/iCloud or Apple download metadata, and an intranet/private-IP target. Inspect Mihomo `/connections` or `/rules` to prove the matched policy and chain. A 401/403 alone does not prove the route or a working logged-in session. Do not download large test files or call paid AI APIs.
 - Run `verify` again after a subscription refresh/restart when feasible, checking persistence of the global extension. Keep node/region availability separate from the routing guarantee.
-- If a request still uses the proxy, inspect the exact matching subscription rule; do not silently delete or reorder it. New exception requirements belong in the overlay only after the user asks.
+- If domestic traffic still uses the proxy, inspect its domain/IP, provider membership and actual matching rule. Check whether an older policy placed domestic DIRECT behind the subscription. Fix the overlay or stale data; do not edit the subscription source or add a one-off app exemption. Existing long-lived connections may need to reconnect to pick up the new policy.
 
 Connection inspection may contain private hosts, process names and IPs. Keep evidence local, show only the summary needed, and never commit real configuration fixtures.
 

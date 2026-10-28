@@ -54,10 +54,9 @@ function merge(input, sources) {
   const unique = [...new Set(priority)];
   const china = ['DOMAIN-SET,'+CNBASE+'_Domain.list,DIRECT', 'RULE-SET,'+CNBASE+'.list,DIRECT', 'GEOIP,CN,DIRECT'];
   const block = (name, rows) => [TAG+name+':begin', ...rows, TAG+name+':end'];
-  const output = [...lines.slice(0,start+1), ...block('priority',unique), ...lines.slice(start+1,finals[0]),
-    ...block('china',china), ...lines.slice(finals[0])].join(newline);
+  const output = [...lines.slice(0,start+1), ...block('priority',unique), ...block('china',china), ...lines.slice(start+1)].join(newline);
   if (stripManaged(output.split(/\r?\n/)).join(newline) !== lines.join(newline)) throw Error('Original configuration changed');
-  return {output, priorityRules: unique.length, originalRulesPreserved: true, chinaFallbackBeforeOriginalFinal: true};
+  return {output, priorityRules: unique.length, originalRulesPreserved: true, domesticDirectBeforeSubscription: true};
 }
 function argumentsOf(argv) {
   const args = {};
@@ -94,7 +93,7 @@ function main(argv) {
   try {fs.writeFileSync(manifestFile,JSON.stringify(manifest,null,2)+'\n',{flag:'wx',mode:0o600});}
   catch(error){fs.rmSync(outputFile);throw error;}
   return {outputFile,sourceUnchanged:sha(fs.readFileSync(inputFile))===manifest.inputSha256,priorityRules:result.priorityRules,
-    originalRulesPreserved:true,deviceImportAndRoutingVerificationRequired:true,categoryUpdates:'Priority categories refresh on export; remote China sets refresh through Shadowrocket.'};
+    originalRulesPreserved:true,domesticDirectBeforeSubscription:true,deviceImportAndRoutingVerificationRequired:true,categoryUpdates:'Priority categories refresh on export; remote China sets refresh through Shadowrocket.'};
 }
 if (require.main===module) {try {console.log(JSON.stringify(main(process.argv.slice(2)),null,2));}catch(e){console.error(e.message);process.exitCode=1;}}
 module.exports={merge,domainRules,stripManaged,main,KEYS};
