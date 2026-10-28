@@ -9,7 +9,7 @@ Configure each device through the same maintained overlay, without exporting sub
 
 For **Shadowrocket**, read [export and device verification](references/shadowrocket.md). Use its separate `.conf` exporter; the Clash install/controller workflow below does not apply. Shadowrocket support currently means configuration export, not verified device automation or a background extension lifecycle.
 
-When preserving phone settings or notification optimization, merge the actual exported `.conf`, not a generic template. The exporter detects original APNs PROXY intent and protects it before Apple/CN DIRECT; the Shadowrocket reference explains conflicting policies and independently enabled old modules.
+When preserving phone settings or notification optimization, merge the actual exported `.conf`, not a generic template. For the requested traffic-saving update, use `--dns saving --remote on`: this explicitly replaces only three DNS/rollback settings, adds validated domain-only remote classifications, and retains static AI/APNs guards. Do not claim the phone configured its background updates automatically. The exporter detects original APNs PROXY intent and protects it before Apple/CN DIRECT; the Shadowrocket reference explains conflicting policies and independently enabled old modules.
 
 ## Policy
 
@@ -17,7 +17,7 @@ Apply these priorities through a separate global script; preserve every original
 
 1. Foreign AI services (including OpenAI, Claude, Apple Intelligence) and GitHub use a managed proxy-only fallback group.
 2. Intranet domain categories and private IPv4/IPv6 destinations go direct. Private-IP rules deliberately resolve domains, including public-looking names mapped to VPN/private IPs.
-3. Maintained service categories cover large downloads such as Baidu/iCloud/Apple developer downloads and updates. These are examples, not the complete supported app list.
+3. Maintained service categories cover large downloads such as Baidu/iCloud/Apple developer downloads and updates, plus Sukka's China-specific Apple/Microsoft CDN classifications. These are examples, not the complete supported app list.
 4. All maintained China domains and China IP destinations go direct BEFORE subscription rules, including a newly seen video CDN hostname resolving to a China IP.
 5. Run the existing subscription rules for remaining traffic.
 6. Keep the original subscription fallback. Never replace it with DIRECT.
@@ -55,6 +55,10 @@ Preserve existing authorization. An explicit request to configure this device pe
 - If domestic traffic still uses the proxy, inspect its domain/IP, provider membership and actual matching rule. Check whether an older policy placed domestic DIRECT behind the subscription. Fix the overlay or stale data; do not edit the subscription source or add a one-off app exemption. Existing long-lived connections may need to reconnect to pick up the new policy.
 
 Connection inspection may contain private hosts, process names and IPs. Keep evidence local, show only the summary needed, and never commit real configuration fixtures.
+
+## On-demand traffic audit
+
+Run `node <skill-dir>/scripts/traffic-audit.cjs` for current connections: proxied domestic candidates, largest active proxy downloads and unknown destination IPs. It downloads/caches public domain/CIDR data, redacts node names and detailed host labels, and never closes connections or schedules background work. Missing destination IPs are unknown, not verified foreign. AI/GitHub/APNs proxy exceptions are not mistakes. Active-connection bytes are not the airport bill. Existing REJECT rules after the overlay are counted for overlap review; do not reorder complex original rules automatically.
 
 ## Roll back
 

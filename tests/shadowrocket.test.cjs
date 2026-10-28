@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
-const {merge,domainRules,stripManaged,main,KEYS,APNS_RANGES}=require('../skills/clash-smart-routing/scripts/shadowrocket.cjs');
+const {merge,domainRules,stripManaged,main,KEYS,APNS_RANGES,REMOTES,savingDns,validateRemote}=require('../skills/clash-smart-routing/scripts/shadowrocket.cjs');
 const {engine}=require('../skills/clash-smart-routing/scripts/clash-router.cjs');
 const source=()=>Object.fromEntries(KEYS.map(k=>[k,'+.'+k+'.example\nexact.'+k+'.example\n']));
 const input='# original\n[General]\ndns-server = system\n[Proxy Group]\nOriginal = select,PROXY,DIRECT\n[Rule]\n# keep this comment\nDOMAIN-SUFFIX,foreign.example,Original\nDOMAIN-SUFFIX,blocked.example,REJECT\nFINAL,Original\n[Host]\ninternal.example = 10.0.0.2\n';
@@ -35,7 +35,7 @@ test('Shadowrocket upgrades the previous China-before-FINAL layout instead of le
 test('Shadowrocket protects original APNs proxy intent ahead of Apple/CN DIRECT while preserving all original lines',()=>{
   const original=input.replace('# keep this comment','# keep this comment\nDOMAIN-SUFFIX,apple.com,DIRECT\nDOMAIN-SUFFIX,push.apple.com,PROXY');
   const s=source();s.icloud='+.apple.com';const r=merge(original,s), out=r.output;
-  assert.equal(r.apnsProxyProtected,true);assert.equal(r.apnsRules,10);
+  assert.equal(r.apnsProxyProtected,true);assert.equal(r.apnsRules,12);
   const push=out.indexOf('DOMAIN-SUFFIX,push.apple.com,PROXY'), apple=out.indexOf('DOMAIN-SUFFIX,apple.com,DIRECT');
   assert.ok(push<apple);assert.ok(push<out.indexOf('GEOIP,CN,DIRECT'));
   assert.ok(out.indexOf('DOMAIN-SUFFIX,chatgpt.com,PROXY')<push);
@@ -82,8 +82,46 @@ test('Shadowrocket CLI creates a new private file with provenance and refuses ov
     const args=['--input',original,'--output',output,'--source-dir',root];const report=main([...args]);
     assert.ok(report.sourceUnchanged);assert.equal(fs.readFileSync(original,'utf8'),input);
     if(process.platform!=='win32')assert.equal(fs.statSync(output).mode&0o777,0o600);
-    const provenance=JSON.parse(fs.readFileSync(output+'.manifest.json'));assert.equal(Object.keys(provenance.sources).length,8);
+    const provenance=JSON.parse(fs.readFileSync(output+'.manifest.json'));assert.equal(Object.keys(provenance.sources).length,KEYS.length);
     assert.throws(()=>main([...args]),/never overwritten/);
     assert.throws(()=>main(['--input',original,'--output',original,'--source-dir',root]),/never overwritten/);
   } finally {fs.rmSync(root,{recursive:true,force:true});}
+});
+test('saving DNS changes only three General settings and never silently falls back to proxy',()=>{
+  const base=input.replace('dns-server = system','dns-server = 1.1.1.1,8.8.8.8\ndns-direct-fallback-proxy = true\nprivate-ip-answer = true');
+  const r=merge(base,source(),{dns:'saving'});
+  assert.equal(r.dnsChanges.length,3);assert.ok(r.output.includes('dns-direct-fallback-proxy = false'));
+  assert.ok(r.output.includes('dns-server = https://dns.alidns.com/dns-query,https://doh.pub/dns-query'));
+  assert.ok(r.output.includes('private-ip-answer = true'));
+  assert.equal(stripManaged(r.output.split('\n')).join('\n'),savingDns(base,'saving').output);
+  assert.equal(merge(r.output,source(),{dns:'saving'}).output,r.output);
+  assert.throws(()=>merge(base.replace('dns-server = 1.1.1.1,8.8.8.8','dns-server = system\ndns-server = system'),source(),{dns:'saving'}),/duplicate DNS/);
+  assert.throws(()=>merge(input,source(),{dns:'typo'}),/DNS mode/);
+});
+test('native remote classifications retain static guards, protect APNs aliases and do not contain full-config update URLs',()=>{
+  const base=input.replace('# keep this comment','DOMAIN-SUFFIX,push.apple.com,PROXY');
+  const r=merge(base,source(),{remote:'on'}),firstDirect=r.output.indexOf(',DIRECT',r.output.indexOf('[Rule]'));
+  assert.equal(r.remoteRuleSets,7);
+  for(const remote of REMOTES){const i=r.output.indexOf('RULE-SET,'+remote.url+','+remote.policy);assert.ok(i>0);if(remote.policy==='PROXY')assert.ok(i<firstDirect);}
+  assert.ok(r.output.indexOf('DOMAIN-SUFFIX,courier-push-apple.com.akadns.net,PROXY')<firstDirect);
+  assert.ok(r.output.includes('DOMAIN-SUFFIX,ai.example,PROXY'));assert.ok(!r.output.includes('update-url ='));
+  assert.equal(merge(r.output,source(),{remote:'on'}).output,r.output);
+  assert.throws(()=>validateRemote('IP-ASN,20473,no-resolve'),/broad IP/);
+  assert.throws(()=>validateRemote('DOMAIN-SUFFIX,example.com,DIRECT'),/unsupported/);
+  assert.equal(validateRemote('# comment\nDOMAIN-SUFFIX,claude.ai\n'),1);
+});
+test('saving export records remote validation and DNS provenance; unsafe upstream data leaves no output',()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'shadowrocket-saving-'));
+  try{
+    const original=path.join(root,'original.conf');fs.writeFileSync(original,input);
+    for(const k of KEYS)fs.writeFileSync(path.join(root,path.basename(engine.sources[k].replace('.mrs','.list'))),source()[k]);
+    for(const remote of REMOTES)fs.writeFileSync(path.join(root,'remote-'+remote.name+'.list'),'DOMAIN-SUFFIX,upstream.example\n');
+    const args=['--input',original,'--output',path.join(root,'saving.conf'),'--source-dir',root,'--dns','saving','--remote','on'];
+    const report=main([...args]);assert.equal(report.remoteServiceRuleSets,7);assert.equal(report.dnsSettingsChanged.length,3);
+    const manifest=JSON.parse(fs.readFileSync(path.join(root,'saving.conf.manifest.json')));
+    assert.equal(Object.keys(manifest.remoteSources).length,7);assert.equal(manifest.dns.mode,'saving');
+    fs.writeFileSync(path.join(root,'remote-openai.list'),'IP-ASN,20473,no-resolve');
+    const fail=[...args];fail[3]=path.join(root,'unsafe.conf');assert.throws(()=>main(fail),/broad IP/);
+    assert.ok(!fs.existsSync(path.join(root,'unsafe.conf')));assert.equal(fs.readFileSync(original,'utf8'),input);
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });

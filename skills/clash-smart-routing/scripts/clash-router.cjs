@@ -154,9 +154,9 @@ async function verify(ctx, api) {
     throw Error('AI proxy group can fall through to DIRECT');
   const managed = (rules.rules || []).filter(r => r.type === 'RuleSet' && String(r.payload).startsWith(engine.prefix));
   const first = (rules.rules || [])[0];
-  if (managed.length !== 13 || !first || first.type !== 'RuleSet' || first.payload !== engine.prefix + 'ai-guard' || first.proxy !== engine.group)
-    throw Error('Managed rules missing or shadowed');
   const expected = engine.apply({proxies:[{name:'validation-node',type:'ss'}],rules:[]},{}).rules;
+  if (managed.length !== expected.length || !first || first.type !== 'RuleSet' || first.payload !== engine.prefix + 'ai-guard' || first.proxy !== engine.group)
+    throw Error('Managed rules missing or shadowed');
   if (!expected.every((text,i) => {
     const parts=text.split(','), actual=rules.rules[i];
     return actual && actual.type==='RuleSet' && actual.payload===parts[1] && actual.proxy===parts[2] && !actual.extra?.disabled;

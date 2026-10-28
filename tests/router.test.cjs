@@ -33,7 +33,7 @@ test('domestic classification precedes explicit subscription proxy/reject withou
     assert.ok(direct<rules.indexOf('DOMAIN-SUFFIX,blocked.example,REJECT'));
     assert.ok(direct>rules.indexOf('RULE-SET,smart-routing-ai-guard,'+engine.group));
   }
-  assert.deepEqual(Array.from(rules.slice(13)),fixture().rules);
+  assert.deepEqual(Array.from(rules.slice(15)),fixture().rules);
 });
 test('AI routes cannot inherit DIRECT/COMPATIBLE from subscription selector or empty providers', () => {
   const result = engine.apply(fixture(), {preferredNode:'Preferred node'}); const group = result['proxy-groups'].at(-1);
@@ -92,7 +92,7 @@ test('live verification refuses rules shadowed by a later client extension', asy
   const data={ '/rules':{rules}, ['/proxies/'+encodeURIComponent(engine.group)]:{all:['First node'],now:'First node'},
     '/configs':{mode:'rule'}, '/providers/rules':{providers:Object.fromEntries(Object.keys(engine.sources).map(k=>[engine.prefix+k,{ruleCount:1}]))}};
   const api=async(method,route)=>data[route];
-  assert.equal((await verify({},api)).managedRules,13);
+  assert.equal((await verify({},api)).managedRules,15);
   const before=[...data['/rules'].rules];
   data['/rules'].rules.splice(11,0,{type:'DomainSuffix',payload:'douyin.com',proxy:'First node'});
   await assert.rejects(()=>verify({},api),/Domestic DIRECT priority/);

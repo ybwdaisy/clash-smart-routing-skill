@@ -9,16 +9,20 @@
 ```sh
 node skills/clash-smart-routing/scripts/shadowrocket.cjs \
   --input /private/path/original.conf \
-  --output /private/path/new-smart-routing.conf
+  --output /private/path/new-smart-routing.conf --dns saving --remote on
 ```
 
 原文件不变；新配置保留原有规则顺序、其他配置段及 FINAL 兜底，加入 AI 代理、内网/百度/iCloud/Apple 下载直连，并将通用国内域名/IP 直连放在原订阅规则之前。没有完整配置、只有节点订阅时，可以省略 `--input` 生成最小示例；这不能代替迁移你已有的完整规则。
 
-已有推送优化时务必传入原 `.conf`。默认会识别原来的 `push.apple.com → PROXY`，将推送域名和 Apple 官方列出的 APNs 专用 IPv4/IPv6 网段保护在所有直连规则之前，修好 `apple.com → DIRECT` 遮住推送规则的问题；原 DNS、绕过设置、Host 和重写保持不变。可用 `--apns proxy` 显式启用，或 `--apns off` 不添加保护；冲突策略和自定义推送组会要求先检查。推送规则已内置，**若启用了旧 APNs 模块，应关闭它**，避免其中宽泛的 CDN 代理规则继续干扰下载。无需额外安装模块。
+已有推送优化时务必传入原 `.conf`。默认会识别原来的 `push.apple.com → PROXY`，将推送域名和 Apple 官方列出的 APNs 专用 IPv4/IPv6 网段保护在所有直连规则之前，修好 `apple.com → DIRECT` 遮住推送规则的问题；默认 `--dns preserve` 保留原 DNS；省流模式只调整下述三项，其余绕过设置、Host 和重写不变。可用 `--apns proxy` 显式启用，或 `--apns off` 不添加保护；冲突策略和自定义推送组会要求先检查。推送规则已内置，**若启用了旧 APNs 模块，应关闭它**，避免其中宽泛的 CDN 代理规则继续干扰下载。无需额外安装模块。
 
 通过文件/iCloud Drive 私下导入 Shadowrocket，启用新配置和配置分流，选择真实代理节点，再查看连接记录验证。完整 `.conf` 可能包含密码，只保存在本地，不上传仓库；私有 GitHub 地址不能直接当作匿名配置订阅链接。
 
-**更新区别：**国内分类引用维护者的远程列表，由客户端刷新；其余分类从与 Clash 相同的 MetaCubeX 来源在每次导出时刷新，是配置快照，手机不会自动刷新这部分。原订阅完整配置若更新，需以更新后的源文件重新导出。回滚时选择原配置即可。
+**省流 DNS：**`--dns saving` 使用 AliDNS/DNSPod 加密 DNS、系统 DNS 备用，并关闭直连解析失败后转代理。只修改这三项，原文件不变。代价是这些 DNS 都不可用时，直连访问会失败，不会悄悄转代理消耗流量。
+
+**远程更新：**`--remote on` 加入 7 份已核验为域名规则的原生远程分类：OpenAI、Claude、GitHub、百度、iCloud、AppleDev、AppleFirmware；国内列表仍远程引用。原有静态 AI/APNs 保护和分类快照继续保留，防止一次替换损失覆盖。静态部分随重新导出刷新；不是所有规则都能在手机后台更新。
+
+**手机只设置一次：**导入并启用新文件，全局路由选「配置」，节点继续用原订阅；如旧 APNs 模块已启用，关闭它。然后到「设置 → 自动更新 → 配置」开启自动后台更新，间隔 1 天，并在 iOS 允许 Shadowrocket 后台 App 刷新；有 GeoLite2 自动更新选项时也开启。本地配置没有整体 `update-url`，只更新引用资源，不覆盖你的推送/DNS设置。iOS 后台调度可能延后，强制划掉应用后应重新打开。
 
 目前已通过导出、格式转换、重复导出、规则保留和防覆盖测试，尚未进行 Shadowrocket 内核/iPhone 实机验收。详细步骤见 [Shadowrocket 适配说明](skills/clash-smart-routing/references/shadowrocket.md)。
 
@@ -56,6 +60,7 @@ node skills/clash-smart-routing/scripts/clash-router.cjs plan
 node skills/clash-smart-routing/scripts/clash-router.cjs apply
 node skills/clash-smart-routing/scripts/clash-router.cjs verify
 node skills/clash-smart-routing/scripts/probe.cjs
+node skills/clash-smart-routing/scripts/traffic-audit.cjs
 # 恢复上一次安装前状态
 node skills/clash-smart-routing/scripts/clash-router.cjs rollback
 ```
@@ -71,5 +76,7 @@ node --test tests/*.test.cjs
 ```
 
 测试覆盖规则完整保留、AI 无直连兜底、Apple AI 与 iCloud 优先级、节点切换、重复安装、现有脚本组合和无 MATCH 场景。本机 macOS / Mihomo v1.19.33 已完成内核校验和小请求路由验证。验收覆盖 OpenAI、Claude、GitHub 代理；百度网盘、iCloud、Apple 开发下载、私有 IP，以及通用国内域名/IP 直连。只发小请求，未实际下载多 GB 文件；Apple 测试地址返回 403，但连接链确认直连。其他设备安装后用 `probe.cjs` 验收，订阅更新后的客户端持久化仍需实机复查。
+
+下载分类补充来自 [SukkaW/Surge](https://github.com/SukkaW/Surge) 的国内 Apple/Microsoft CDN 数据（AGPL-3.0），不是将所有 CDN 或软件下载强制直连。按需 `traffic-audit.cjs` 会列出当前代理大流量、国内误代理候选和无法判定的 IP；不自动断开连接，也不创建后台任务。
 
 使用上游维护的 [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat) 分类，通过 URL 引用，不打包规则数据。路由语义以 [Mihomo 文档](https://wiki.metacubex.one/en/config/rules/) 和 [Clash Verge 扩展执行顺序](https://www.clashverge.dev/guide/extend.html) 为准。
