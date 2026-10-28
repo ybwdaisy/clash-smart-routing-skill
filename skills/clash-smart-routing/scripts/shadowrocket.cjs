@@ -9,6 +9,10 @@ const {engine} = require('./clash-router.cjs');
 const BASE = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/';
 const CNBASE = 'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Shadowrocket/ChinaMaxNoIP/ChinaMaxNoIP';
 const KEYS = Object.keys(engine.sources).filter(k => !k.startsWith('cn-'));
+// Apple's APNs-specific ranges, not all Apple/CDN traffic. Reviewed against:
+// https://support.apple.com/en-us/102266
+const APNS_RANGES = ['17.249.0.0/16','17.252.0.0/16','17.57.144.0/22','17.188.128.0/18','17.188.20.0/23',
+  '2620:149:a44::/48','2403:300:a42::/48','2403:300:a51::/48','2a01:b740:a42::/48'];
 const TAG = '# smart-routing-shadowrocket:';
 const sha = text => crypto.createHash('sha256').update(text).digest('hex');
 function stripManaged(lines) {
@@ -33,7 +37,7 @@ function domainRules(text, target) {
     throw Error('Unsupported upstream domain syntax; no configuration exported');
   });
 }
-function merge(input, sources) {
+function merge(input, sources, settings = {}) {
   const newline = input.includes('\r\n') ? '\r\n' : '\n';
   const lines = stripManaged(input.split(/\r?\n/));
   if (lines.some(l => /^\s*PROXY\s*=/i.test(l))) throw Error('Reserved PROXY name is redefined; inspect actual proxy-only policy before export');
@@ -44,9 +48,24 @@ function merge(input, sources) {
   if (end < 0) end = lines.length;
   const finals = lines.map((l,i) => i > start && i < end && /^\s*FINAL\s*,/i.test(l) ? i : -1).filter(i=>i>=0);
   if (finals.length !== 1) throw Error('Expected one original FINAL fallback; refusing to invent or replace it');
+  const apnsMode=settings.apns || 'auto';
+  if (!['auto','proxy','off'].includes(apnsMode)) throw Error('APNs mode must be auto, proxy or off');
+  const specificPush=lines.slice(start+1,end).map(l=>l.trim().split(',').map(p=>p.trim()))
+    .filter(p=>/^(DOMAIN|DOMAIN-SUFFIX)$/i.test(p[0]) && /^(?:[^.]+\.)*push\.apple\.com$/i.test(p[1] || ''));
+  const wantsProxy=specificPush.some(p=>p[2]==='PROXY');
+  if(apnsMode==='auto' && specificPush.some(p=>!['PROXY','DIRECT'].includes(p[2])))
+    throw Error('Custom APNs policy requires inspection; choose --apns proxy or off after reviewing the original group');
+  if(apnsMode==='auto' && wantsProxy && specificPush.some(p=>p[2]!=='PROXY'))
+    throw Error('Conflicting APNs policies; inspect them and explicitly choose --apns proxy or off');
+  // Also retain a protection installed by a previous explicit --apns proxy export.
+  const previouslyProtected=input.includes('# APNs proxy protection: Apple-specific ranges; no broad CDN proxy rules.');
+  const protectApns=apnsMode==='proxy'||(apnsMode==='auto'&&(wantsProxy||previouslyProtected));
+  const apns=protectApns ? ['DOMAIN-SUFFIX,push.apple.com,PROXY',...APNS_RANGES.map(c=>
+    (c.includes(':')?'IP-CIDR6,':'IP-CIDR,')+c+',PROXY,no-resolve')] : [];
   const priority = engine.guards.map(d=>'DOMAIN-SUFFIX,' + d + ',PROXY');
   const category = (key, target) => domainRules(sources[key] || '', target);
   for (const key of ['ai', 'apple-ai', 'github']) priority.push(...category(key, 'PROXY'));
+  if(protectApns) priority.push('# APNs proxy protection: Apple-specific ranges; no broad CDN proxy rules.',...apns);
   priority.push(...category('private', 'DIRECT'));
   priority.push(...['localhost','local','lan','internal'].map(d=>'DOMAIN-SUFFIX,'+d+',DIRECT'));
   priority.push(...engine.privateRanges.map(c=>(c.includes(':')?'IP-CIDR6,':'IP-CIDR,')+c+',DIRECT'));
@@ -56,12 +75,13 @@ function merge(input, sources) {
   const block = (name, rows) => [TAG+name+':begin', ...rows, TAG+name+':end'];
   const output = [...lines.slice(0,start+1), ...block('priority',unique), ...block('china',china), ...lines.slice(start+1)].join(newline);
   if (stripManaged(output.split(/\r?\n/)).join(newline) !== lines.join(newline)) throw Error('Original configuration changed');
-  return {output, priorityRules: unique.length, originalRulesPreserved: true, domesticDirectBeforeSubscription: true};
+  return {output, priorityRules: unique.filter(r=>!r.startsWith('#')).length, originalRulesPreserved: true,
+    domesticDirectBeforeSubscription: true, apnsProxyProtected: protectApns, apnsRules:apns.length};
 }
 function argumentsOf(argv) {
   const args = {};
   while (argv.length) {
-    const k=argv.shift(); if (!/^--(input|output|source-dir)$/.test(k)||!argv.length) throw Error('Usage: shadowrocket.cjs --output new.conf [--input original.conf] [--source-dir cached-text-categories]');
+    const k=argv.shift(); if (!/^--(input|output|source-dir|apns)$/.test(k)||!argv.length) throw Error('Usage: shadowrocket.cjs --output new.conf [--input original.conf] [--apns auto|proxy|off] [--source-dir cached-text-categories]');
     if (args[k.slice(2)]) throw Error('Duplicate argument'); args[k.slice(2)]=argv.shift();
   }
   if (!args.output) throw Error('--output is required');
@@ -74,7 +94,7 @@ function main(argv) {
   if (outputFile === inputFile || fs.existsSync(outputFile) || fs.existsSync(manifestFile)) throw Error('Output must be new; source and existing files are never overwritten');
   const input=fs.readFileSync(inputFile,'utf8'), sources={}, manifest={format:1,generatedAt:new Date().toISOString(),inputSha256:sha(input),sources:{}};
   // Preflight the source before making network requests.
-  merge(input,Object.fromEntries(KEYS.map(k=>[k,'validation.example'])));
+  merge(input,Object.fromEntries(KEYS.map(k=>[k,'validation.example'])),args);
   for (const key of KEYS) {
     const filename=engine.sources[key].replace(/\.mrs$/,'.list'), url=BASE+filename;
     let text;
@@ -87,13 +107,15 @@ function main(argv) {
     domainRules(text,'DIRECT'); sources[key]=text;
     manifest.sources[key]={url,sha256:sha(text)};
   }
-  const result=merge(input,sources); manifest.outputSha256=sha(result.output);manifest.priorityRules=result.priorityRules;
+  const result=merge(input,sources,args); manifest.outputSha256=sha(result.output);manifest.priorityRules=result.priorityRules;
+  manifest.apns={proxyProtected:result.apnsProxyProtected,rules:result.apnsRules,source:'https://support.apple.com/en-us/102266'};
   fs.mkdirSync(path.dirname(outputFile),{recursive:true,mode:0o700});
   fs.writeFileSync(outputFile,result.output,{flag:'wx',mode:0o600});
   try {fs.writeFileSync(manifestFile,JSON.stringify(manifest,null,2)+'\n',{flag:'wx',mode:0o600});}
   catch(error){fs.rmSync(outputFile);throw error;}
   return {outputFile,sourceUnchanged:sha(fs.readFileSync(inputFile))===manifest.inputSha256,priorityRules:result.priorityRules,
-    originalRulesPreserved:true,domesticDirectBeforeSubscription:true,deviceImportAndRoutingVerificationRequired:true,categoryUpdates:'Priority categories refresh on export; remote China sets refresh through Shadowrocket.'};
+    originalRulesPreserved:true,domesticDirectBeforeSubscription:true,apnsProxyProtected:result.apnsProxyProtected,apnsRules:result.apnsRules,
+    deviceImportAndRoutingVerificationRequired:true,categoryUpdates:'Priority categories refresh on export; remote China sets refresh through Shadowrocket.'};
 }
 if (require.main===module) {try {console.log(JSON.stringify(main(process.argv.slice(2)),null,2));}catch(e){console.error(e.message);process.exitCode=1;}}
-module.exports={merge,domainRules,stripManaged,main,KEYS};
+module.exports={merge,domainRules,stripManaged,main,KEYS,APNS_RANGES};

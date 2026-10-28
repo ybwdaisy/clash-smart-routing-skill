@@ -9,6 +9,8 @@ Configure each device through the same maintained overlay, without exporting sub
 
 For **Shadowrocket**, read [export and device verification](references/shadowrocket.md). Use its separate `.conf` exporter; the Clash install/controller workflow below does not apply. Shadowrocket support currently means configuration export, not verified device automation or a background extension lifecycle.
 
+When preserving phone settings or notification optimization, merge the actual exported `.conf`, not a generic template. The exporter detects original APNs PROXY intent and protects it before Apple/CN DIRECT; the Shadowrocket reference explains conflicting policies and independently enabled old modules.
+
 ## Policy
 
 Apply these priorities through a separate global script; preserve every original subscription rule and its relative order:
