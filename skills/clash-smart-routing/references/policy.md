@@ -2,6 +2,8 @@
 
 The rule engine is a deterministic overlay, not a live GFW oracle. It uses daily-updated [MetaCubeX rule data](https://github.com/MetaCubeX/meta-rules-dat/tree/meta/geo); no data files are redistributed in this repository. Explicit AI guards protect core login/content domains before general China/Apple rules. Apple Intelligence precedes iCloud to avoid an AI request being captured by broad iCloud direct rules.
 
+The optional [computer monitor](monitor.md) adds bounded endpoint learning after classification, with temporary exact host/IP rules only for fallback HTTPS connections. It does not replace the static policy or reinterpret explicit foreign subscription routes. Stop it before intentionally rolling back the base overlay.
+
 ## What remains with the subscription
 
 The subscription YAML stays byte-for-byte unchanged. Its ordered rules, named proxy groups, providers and fallback are preserved. AI, intranet, maintained download categories, and generic China domain/IP detection all precede the subscription. Domestic DIRECT deliberately overrides subscription proxy decisions, preventing large downloads and domestic video/CDNs from wasting quota. AI rules precede China detection to keep those services on the proxy even if their destinations appear domestic. Remaining traffic still uses the complete original subscription policy and fallback.

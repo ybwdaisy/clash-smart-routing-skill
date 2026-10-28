@@ -77,4 +77,4 @@ async function main(argv){
   const active=await api('GET','/connections');return summarize(active.connections||[],ip,host,ctx.subscription.rules||[]);
 }
 if(require.main===module)main(process.argv.slice(2)).then(r=>console.log(JSON.stringify(r,null,2))).catch(e=>{console.error(e.message);process.exitCode=1;});
-module.exports={address,ranges,contains,domains,summarize};
+module.exports={address,ranges,contains,domains,summarize,cached,site};

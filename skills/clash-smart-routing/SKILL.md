@@ -1,6 +1,6 @@
 ---
 name: clash-smart-routing
-description: Configure traffic-saving split routing for Clash Verge/Rev with Mihomo, or export a Shadowrocket .conf preserving its original rules. Prioritize domestic domain/IP DIRECT over subscription proxy rules, keep AI proxied, and prevent domestic downloads/video from wasting quota. Supports migration and rollback; not node purchases or account region restrictions.
+description: Configure traffic-saving routing for Clash Verge/Rev, monitor proxy waste and learn verified direct endpoints on macOS, or export a Shadowrocket config preserving original rules and push settings. Keep AI proxied and subscription sources intact. Use for split routing, migration and proxy traffic diagnosis.
 ---
 
 # Clash Smart Routing
@@ -19,8 +19,9 @@ Apply these priorities through a separate global script; preserve every original
 2. Intranet domain categories and private IPv4/IPv6 destinations go direct. Private-IP rules deliberately resolve domains, including public-looking names mapped to VPN/private IPs.
 3. Maintained service categories cover large downloads such as Baidu/iCloud/Apple developer downloads and updates, plus Sukka's China-specific Apple/Microsoft CDN classifications. These are examples, not the complete supported app list.
 4. All maintained China domains and China IP destinations go direct BEFORE subscription rules, including a newly seen video CDN hostname resolving to a China IP.
-5. Run the existing subscription rules for remaining traffic.
-6. Keep the original subscription fallback. Never replace it with DIRECT.
+5. If the optional computer monitor is enabled, its temporary exact endpoint rules follow the classification rules. It only learns HTTPS traffic that reached the subscription fallback; explicit foreign subscription routes are excluded.
+6. Run the existing subscription rules for remaining traffic.
+7. Keep the original subscription fallback. Never replace it with DIRECT.
 
 Preserving the subscription means leaving its file and original relative rule order intact; it does not mean giving its proxy decisions priority over domestic DIRECT. The goal is preventing expensive domestic downloads/video from consuming proxy quota. The local domestic overlay deliberately outranks subscription rules. AI remains ahead of all DIRECT classification. Judge each destination by domain/IP rather than exempting an entire app or routing by file size.
 
@@ -60,10 +61,16 @@ Connection inspection may contain private hosts, process names and IPs. Keep evi
 
 Run `node <skill-dir>/scripts/traffic-audit.cjs` for current connections: proxied domestic candidates, largest active proxy downloads and unknown destination IPs. It downloads/caches public domain/CIDR data, redacts node names and detailed host labels, and never closes connections or schedules background work. Missing destination IPs are unknown, not verified foreign. AI/GitHub/APNs proxy exceptions are not mistakes. Active-connection bytes are not the airport bill. Existing REJECT rules after the overlay are counted for overlap review; do not reorder complex original rules automatically.
 
+## Computer monitoring and bounded learning
+
+For requests to add continuous detection/correction, read [monitor operation and limits](references/monitor.md). On macOS, `node <skill-dir>/scripts/routing-monitor.cjs install` adds a per-user LaunchAgent and the separate file provider; `status` reads its report and `uninstall` stops it and removes learned rules while retaining base routing. Installation is appropriate when the user requests the continuous capability; a read-only diagnosis alone does not authorize scheduling it.
+
+The monitor checks once per minute, validates two separated unauthenticated HTTPS HEAD requests before granting an exact host + single IP + TCP/443 lease, and protects AI/GitHub/APNs. Only original fallback connections qualify; explicit subscription proxy decisions and potentially matching REJECT predicates are excluded. TUN mode suspends learning and clears leases because probe bypass is unverified. Never describe HEAD success as full application or login verification, or a running process as proof that real traffic was saved. Verify the service report, provider state, subscription hash and bounded routing probes after installation. Phone configuration export does not install a monitor.
+
 ## Roll back
 
 ```sh
 node <skill-dir>/scripts/clash-router.cjs rollback
 ```
 
-The helper restores the last installed script/runtime and retains private backups. If the subscription or managed script has changed since installation, it refuses a stale overwrite; use the saved original global script and the client's normal reload to regenerate against the current subscription. Stop after a failed apply has rolled back; diagnose the concrete error before retrying.
+Uninstall the monitor before rolling back the base overlay so it does not repair a deliberately removed extension. The helper restores the last installed script/runtime and retains private backups. If the subscription or managed script has changed since installation, it refuses a stale overwrite; use the saved original global script and the client's normal reload to regenerate against the current subscription. Stop after a failed apply has rolled back; diagnose the concrete error before retrying.

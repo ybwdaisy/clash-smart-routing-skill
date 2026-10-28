@@ -32,7 +32,8 @@ var SmartRouting = (function () {
     Object.keys(oldProviders).forEach(function (key) {
       if (key.indexOf(PREFIX) !== 0) return;
       var p = oldProviders[key];
-      if (p.type !== "inline" && p.url !== sourceURL(key.slice(PREFIX.length)))
+      var learned = key === PREFIX + "learned" && p.type === "file" && p.path === "./smart-routing-state/learned.yaml";
+      if (!learned && p.type !== "inline" && p.url !== sourceURL(key.slice(PREFIX.length)))
         throw new Error("Reserved rule-provider name collision: " + key);
     });
     var groups = config["proxy-groups"] || [];
@@ -73,6 +74,9 @@ var SmartRouting = (function () {
     if (!Array.isArray(intranet) || intranet.some(function (d) { return typeof d !== "string" || !/^[a-zA-Z0-9._-]+$/.test(d); }))
       throw new Error("intranetDomains must be domain names without rule syntax");
     providers[PREFIX + "lan-domain"] = {type: "inline", behavior: "domain", payload: ["+.localhost", "+.local", "+.lan", "+.internal"].concat(intranet.map(function (d) { return "+." + d; }))};
+    if (settings.monitorEnabled) providers[PREFIX + "learned"] = {
+      type: "file", behavior: "classical", format: "yaml", path: "./smart-routing-state/learned.yaml"
+    };
     config["rule-providers"] = providers;
     function rule(name, target) { return "RULE-SET," + PREFIX + name + "," + target; }
     var priority = [rule("ai-guard", GROUP), rule("ai", GROUP), rule("apple-ai", GROUP), rule("github", GROUP),
@@ -81,7 +85,8 @@ var SmartRouting = (function () {
       rule("download-apple-cn", "DIRECT"), rule("download-microsoft-cn", "DIRECT")];
     // Domestic classification must beat subscription proxy decisions, not just MATCH.
     // Otherwise a broad subscription proxy rule can consume GB of domestic traffic.
-    config.rules = priority.concat([rule("cn-domain", "DIRECT"), rule("cn-ip", "DIRECT")], original);
+    config.rules = priority.concat([rule("cn-domain", "DIRECT"), rule("cn-ip", "DIRECT")],
+      settings.monitorEnabled ? [rule("learned", "DIRECT")] : [], original);
     config.mode = "rule";
     return config;
   }

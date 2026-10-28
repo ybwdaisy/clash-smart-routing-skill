@@ -71,6 +71,17 @@ test('generated global extension preserves an existing script once and runs on f
 test('does not invent a MATCH when subscription has no explicit fallback', () => {
   const f=fixture();f.rules.pop(); const r=engine.apply(f,{});assert.ok(!r.rules.some(r=>r.startsWith('MATCH,')));
 });
+test('optional learning follows protected/classified routes and is removed idempotently when disabled', () => {
+  const f = fixture(), enabled = copy(engine.apply(copy(f), {monitorEnabled: true}));
+  const rule = 'RULE-SET,smart-routing-learned,DIRECT';
+  assert.ok(enabled.rules.indexOf(rule) > enabled.rules.indexOf('RULE-SET,smart-routing-cn-ip,DIRECT'));
+  assert.ok(enabled.rules.indexOf(rule) < enabled.rules.indexOf(f.rules[0]));
+  assert.equal(enabled['rule-providers']['smart-routing-learned'].type, 'file');
+  assert.deepEqual(copy(engine.apply(copy(enabled), {monitorEnabled: true})), enabled);
+  const disabled = copy(engine.apply(enabled, {}));
+  assert.ok(!disabled.rules.includes(rule)); assert.ok(!disabled['rule-providers']['smart-routing-learned']);
+  assert.deepEqual(disabled.rules.filter(r => !engine.managedRule(r)), f.rules);
+});
 test('CLI rejects unknown operations/arguments instead of interpreting shell content', () => {
   assert.deepEqual(argumentsOf(['plan','--config-dir','/tmp/fixture']),{command:'plan',args:{'config-dir':'/tmp/fixture'}});
   assert.throws(()=>argumentsOf(['apply','--unknown','x']),/Unknown/);

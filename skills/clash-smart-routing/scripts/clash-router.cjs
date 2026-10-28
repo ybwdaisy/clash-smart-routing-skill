@@ -145,7 +145,9 @@ function downloadRules(ctx, candidate) {
   }
   return bytes;
 }
-async function verify(ctx, api) {
+async function verify(ctx, api, settings) {
+  settings = settings || (ctx.stateDir && fs.existsSync(path.join(ctx.stateDir, 'settings.json'))
+    ? JSON.parse(fs.readFileSync(path.join(ctx.stateDir, 'settings.json'), 'utf8')) : {});
   const [rules, proxy, providers, live] = await Promise.all([
     api('GET', '/rules'), api('GET', '/proxies/' + encodeURIComponent(engine.group)),
     api('GET', '/providers/rules'), api('GET', '/configs')]);
@@ -154,7 +156,7 @@ async function verify(ctx, api) {
     throw Error('AI proxy group can fall through to DIRECT');
   const managed = (rules.rules || []).filter(r => r.type === 'RuleSet' && String(r.payload).startsWith(engine.prefix));
   const first = (rules.rules || [])[0];
-  const expected = engine.apply({proxies:[{name:'validation-node',type:'ss'}],rules:[]},{}).rules;
+  const expected = engine.apply({proxies:[{name:'validation-node',type:'ss'}],rules:[]},settings).rules;
   if (managed.length !== expected.length || !first || first.type !== 'RuleSet' || first.payload !== engine.prefix + 'ai-guard' || first.proxy !== engine.group)
     throw Error('Managed rules missing or shadowed');
   if (!expected.every((text,i) => {
@@ -167,11 +169,15 @@ async function verify(ctx, api) {
     if (!item || !(item.ruleCount > 0)) throw Error('Rule provider not loaded: ' + name);
     counts[name] = item.ruleCount;
   }
-  return {mode: live.mode, managedRules: managed.length, domesticDirectBeforeSubscription: true, aiGroupHasDirect: false, aiGroupHasSelectedProxy: Boolean(proxy.now && proxy.now !== 'REJECT'), ruleProviders: counts};
+  if (settings.monitorEnabled && !providers.providers[engine.prefix + 'learned']) throw Error('Learning provider missing');
+  return {mode: live.mode, managedRules: managed.length, domesticDirectBeforeSubscription: true, aiGroupHasDirect: false, aiGroupHasSelectedProxy: Boolean(proxy.now && proxy.now !== 'REJECT'), ruleProviders: counts,
+    ...(settings.monitorEnabled ? {learnedRules: providers.providers[engine.prefix + 'learned'].ruleCount} : {})};
 }
 async function apply(ctx, api, args) {
   await api('GET', '/version'); // Prove the actual controller is reachable before any writes.
   const subscriptionHash = hash(fs.readFileSync(ctx.subscriptionFile));
+  const settingsPath = path.join(ctx.stateDir, 'settings.json');
+  const settingsBefore = fs.existsSync(settingsPath) ? fs.readFileSync(settingsPath, 'utf8') : null;
   const settings = await settingsFor(ctx, api, args);
   const stateFile = path.join(ctx.stateDir, 'state.json');
   const oldState = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : null;
@@ -180,6 +186,8 @@ async function apply(ctx, api, args) {
   if (!oldState && currentScript.startsWith(MARKER)) throw Error('Managed script found without its backup; recover state before overwriting');
   const previous = oldState ? fs.readFileSync(oldState.originalScript, 'utf8') : currentScript;
   const candidate = engine.apply(clone(ctx.config), settings);
+  const learnedFile = path.join(ctx.stateDir, 'learned.yaml');
+  if (settings.monitorEnabled && !fs.existsSync(learnedFile)) writePrivate(learnedFile, 'payload: []\n');
   preserved((ctx.config.rules || []).filter(r => !engine.managedRule(r)), candidate.rules);
   preserved(ctx.subscription.rules || [], candidate.rules);
   const downloadedBytes = downloadRules(ctx, candidate);
@@ -195,14 +203,14 @@ async function apply(ctx, api, args) {
   writePrivate(path.join(backup, 'runtime.json'), JSON.stringify(ctx.config));
   const originalScript = oldState ? oldState.originalScript : path.join(backup, 'Script.js');
   const generated = render(previous, settings);
-  const state = {version: 1, originalScript, scriptHash: hash(generated), backup, subscriptionFile: ctx.subscriptionFile, subscriptionHash, previousState: oldState};
+  const state = {version: 1, originalScript, scriptHash: hash(generated), backup, subscriptionFile: ctx.subscriptionFile, subscriptionHash, previousState: oldState, settingsBefore};
   try {
     writePrivate(ctx.scriptFile, generated);
     writePrivate(ctx.runtimeFile, YAML.stringify(candidate));
     await api('PUT', '/configs?force=true', {path: candidatePath});
     let report;
     for (let i = 0; i < 5; i++) {
-      try {report = await verify(ctx, api); break;} catch (error) {if (i === 4) throw error; await sleep(400);}
+      try {report = await verify(ctx, api, settings); break;} catch (error) {if (i === 4) throw error; await sleep(400);}
     }
     if (hash(fs.readFileSync(ctx.subscriptionFile)) !== subscriptionHash) throw Error('Subscription file changed during installation');
     writePrivate(stateFile, JSON.stringify(state, null, 2));
@@ -225,6 +233,17 @@ async function rollback(ctx, api) {
   writePrivate(ctx.scriptFile, fs.readFileSync(path.join(state.backup, 'Script.js')));
   writePrivate(ctx.runtimeFile, fs.readFileSync(path.join(state.backup, 'runtime.yaml')));
   await api('PUT', '/configs?force=true', {path: path.join(state.backup, 'runtime.json')});
+  const settingsPath = path.join(ctx.stateDir, 'settings.json');
+  if (Object.prototype.hasOwnProperty.call(state, 'settingsBefore')) {
+    if (state.settingsBefore === null) fs.rmSync(settingsPath, {force: true});
+    else writePrivate(settingsPath, state.settingsBefore);
+  } else if (fs.existsSync(settingsPath)) {
+    // Compatibility with snapshots made before monitor settings were backed up.
+    const previous = JSON.parse(fs.readFileSync(path.join(state.backup, 'runtime.json'), 'utf8'));
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    settings.monitorEnabled = Boolean(previous['rule-providers']?.[engine.prefix + 'learned']);
+    writePrivate(settingsPath, JSON.stringify(settings, null, 2));
+  }
   if (state.previousState) writePrivate(stateFile, JSON.stringify(state.previousState, null, 2));
   else fs.rmSync(stateFile);
   return {restored: true, backup: state.backup};
@@ -257,4 +276,4 @@ async function main(argv) {
     automaticProxySelection: true, domesticDirectBeforeSubscription: true, aiHasDirectFallback: false, sources: engine.sources};
 }
 if (require.main === module) main(process.argv.slice(2)).then(r => console.log(JSON.stringify(r, null, 2))).catch(e => {console.error(e.message); process.exitCode = 1;});
-module.exports = {engine, discover, load, render, preserved, argumentsOf, main, controller, verify};
+module.exports = {engine, discover, load, render, preserved, argumentsOf, main, controller, verify, writePrivate, rollback};

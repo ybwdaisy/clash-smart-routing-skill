@@ -34,6 +34,15 @@ node skills/clash-smart-routing/scripts/clash-router.cjs verify
 
 按需检查代理大流量：`node skills/clash-smart-routing/scripts/traffic-audit.cjs`。回滚上次应用：`node skills/clash-smart-routing/scripts/clash-router.cjs rollback`。
 
+macOS 可开启后台检测与谨慎学习，无需 MCP：
+
+```sh
+node skills/clash-smart-routing/scripts/routing-monitor.cjs install
+node skills/clash-smart-routing/scripts/routing-monitor.cjs status
+```
+
+每分钟检查一次；只对订阅兜底的未知 HTTPS 连接做少量直连验证，两次通过后添加限定域名/IP 的临时规则。AI、GitHub、推送和订阅明确指定的境外代理规则排除在学习之外。TUN 开启时暂停学习。停止并清空学习结果用 `routing-monitor.cjs uninstall`；回滚前先停止检测。详见[检测说明](skills/clash-smart-routing/references/monitor.md)。
+
 ### Shadowrocket（小火箭）
 
 先从手机导出当前配置，在电脑上保存为 `original.conf`，再生成合并版：
