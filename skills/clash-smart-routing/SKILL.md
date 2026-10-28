@@ -1,11 +1,13 @@
 ---
 name: clash-smart-routing
-description: Install, migrate, verify or roll back traffic-saving split routing for Clash Verge/Rev with Mihomo. Use for AI services requiring a proxy, intranet/China traffic and Apple/Baidu large downloads going direct while preserving the subscription. Not for VPN subscriptions, node purchases or bypassing account region restrictions.
+description: Configure traffic-saving split routing for Clash Verge/Rev with Mihomo, or export a Shadowrocket .conf preserving its original rules. Use for AI proxy routing, intranet/China direct traffic, Apple/Baidu large downloads, migration and rollback. Not for node purchases or account region restrictions.
 ---
 
 # Clash Smart Routing
 
 Configure each device through the same maintained overlay, without exporting subscription secrets or asking the user to edit domain lists.
+
+For **Shadowrocket**, read [export and device verification](references/shadowrocket.md). Use its separate `.conf` exporter; the Clash install/controller workflow below does not apply. Shadowrocket support currently means configuration export, not verified device automation or a background extension lifecycle.
 
 ## Policy
 

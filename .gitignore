@@ -10,3 +10,7 @@ private/
 *.dat
 *.backup
 coverage/
+exports/
+*.manifest.json
+*.conf
+!skills/clash-smart-routing/assets/shadowrocket.example.conf

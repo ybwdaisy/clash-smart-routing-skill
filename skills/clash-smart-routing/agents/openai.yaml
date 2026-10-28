@@ -1,4 +1,4 @@
 interface:
-  display_name: "Clash 智能省流分流"
-  short_description: "自动配置 AI 代理、内网与大文件直连，保留订阅并提供验证和回滚"
+  display_name: "Clash / Shadowrocket 省流分流"
+  short_description: "配置 Clash 或导出小火箭规则，AI 走代理，内网和大文件直连，保留订阅"
   default_prompt: "使用 $clash-smart-routing 自动配置并验证这台电脑的 Clash 省流分流，保留订阅原规则。"

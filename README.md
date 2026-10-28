@@ -1,6 +1,24 @@
 # Clash 智能省流分流 Skill
 
-给多台设备使用的 Codex / Claude Code Skill。设备导入自己的机场订阅后，让 agent 自动识别配置目录、安装覆盖层、验证与回滚，不用复制订阅或手工维护域名清单。
+给多台设备使用的 Codex / Claude Code Skill。Clash Verge / Rev 支持自动配置与验证；Shadowrocket 支持保留原规则的 `.conf` 导出。设备使用自己的机场订阅，不用复制订阅或手工维护域名清单。
+
+## Shadowrocket（小火箭）
+
+已提供独立的配置导出适配器；不是把 Clash 的 YAML / MRS / JavaScript 直接导入小火箭。
+
+```sh
+node skills/clash-smart-routing/scripts/shadowrocket.cjs \
+  --input /private/path/original.conf \
+  --output /private/path/new-smart-routing.conf
+```
+
+原文件不变；新配置保留原有规则顺序、其他配置段及 FINAL 兜底，加入 AI 代理、内网/百度/iCloud/Apple 下载直连，并在原 FINAL 前加入国内兜底。没有完整配置、只有节点订阅时，可以省略 `--input` 生成最小示例；这不能代替迁移你已有的完整规则。
+
+通过文件/iCloud Drive 私下导入 Shadowrocket，启用新配置和配置分流，选择真实代理节点，再查看连接记录验证。完整 `.conf` 可能包含密码，只保存在本地，不上传仓库；私有 GitHub 地址不能直接当作匿名配置订阅链接。
+
+**更新区别：**国内分类引用维护者的远程列表，由客户端刷新；其余分类从与 Clash 相同的 MetaCubeX 来源在每次导出时刷新，是配置快照，手机不会自动刷新这部分。原订阅完整配置若更新，需以更新后的源文件重新导出。回滚时选择原配置即可。
+
+目前已通过导出、格式转换、重复导出、规则保留和防覆盖测试，尚未进行 Shadowrocket 内核/iPhone 实机验收。详细步骤见 [Shadowrocket 适配说明](skills/clash-smart-routing/references/shadowrocket.md)。
 
 ## 在另一台设备使用
 

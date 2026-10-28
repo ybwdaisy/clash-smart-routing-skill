@@ -80,5 +80,5 @@ var SmartRouting = (function () {
     config.mode = "rule";
     return config;
   }
-  return {apply: apply, sources: SOURCES, group: GROUP, prefix: PREFIX, managedRule: managedRule};
+  return {apply: apply, sources: SOURCES, group: GROUP, prefix: PREFIX, managedRule: managedRule, guards: GUARDS, privateRanges: PRIVATE};
 })();
