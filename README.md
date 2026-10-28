@@ -1,82 +1,65 @@
-# Clash 智能省流分流 Skill
+# Clash / Shadowrocket 省流分流
 
-给多台设备使用的 Codex / Claude Code Skill。Clash Verge / Rev 支持自动配置与验证；Shadowrocket 支持保留原规则的 `.conf` 导出。设备使用自己的机场订阅，不用复制订阅或手工维护域名清单。
+让国内下载、视频和内网优先直连，ChatGPT、Claude、GitHub 保持代理。使用维护中的域名/IP 分类，无需逐个添加网站。
 
-## Shadowrocket（小火箭）
+支持 **Clash Verge / Rev（Mihomo）**，以及 **Shadowrocket 配置生成**。需自备节点订阅；原订阅文件保留，本地分流规则优先执行。
 
-已提供独立的配置导出适配器；不是把 Clash 的 YAML / MRS / JavaScript 直接导入小火箭。
+## 用 AI 助手配置
+
+将下面的话发给 Codex / Claude Code：
+
+> 从 https://github.com/ybwdaisy/clash-smart-routing-skill 安装或更新 skills/clash-smart-routing，按我使用的 Clash Verge 或 Shadowrocket 配置省流分流，保留原订阅与已有设置，并验证结果。
+
+## 手动使用
+
+在电脑上准备 Node.js 18+、npm、curl，然后运行：
 
 ```sh
-node skills/clash-smart-routing/scripts/shadowrocket.cjs \
-  --input /private/path/original.conf \
-  --output /private/path/new-smart-routing.conf --dns saving --remote on
+git clone https://github.com/ybwdaisy/clash-smart-routing-skill.git
+cd clash-smart-routing-skill
+npm --prefix skills/clash-smart-routing ci --ignore-scripts --no-audit --no-fund
 ```
 
-原文件不变；新配置保留原有规则顺序、其他配置段及 FINAL 兜底，加入 AI 代理、内网/百度/iCloud/Apple 下载直连，并将通用国内域名/IP 直连放在原订阅规则之前。没有完整配置、只有节点订阅时，可以省略 `--input` 生成最小示例；这不能代替迁移你已有的完整规则。
+### Clash Verge / Rev
 
-已有推送优化时务必传入原 `.conf`。默认会识别原来的 `push.apple.com → PROXY`，将推送域名和 Apple 官方列出的 APNs 专用 IPv4/IPv6 网段保护在所有直连规则之前，修好 `apple.com → DIRECT` 遮住推送规则的问题；默认 `--dns preserve` 保留原 DNS；省流模式只调整下述三项，其余绕过设置、Host 和重写不变。可用 `--apns proxy` 显式启用，或 `--apns off` 不添加保护；冲突策略和自定义推送组会要求先检查。推送规则已内置，**若启用了旧 APNs 模块，应关闭它**，避免其中宽泛的 CDN 代理规则继续干扰下载。无需额外安装模块。
-
-通过文件/iCloud Drive 私下导入 Shadowrocket，启用新配置和配置分流，选择真实代理节点，再查看连接记录验证。完整 `.conf` 可能包含密码，只保存在本地，不上传仓库；私有 GitHub 地址不能直接当作匿名配置订阅链接。
-
-**省流 DNS：**`--dns saving` 使用 AliDNS/DNSPod 加密 DNS、系统 DNS 备用，并关闭直连解析失败后转代理。只修改这三项，原文件不变。代价是这些 DNS 都不可用时，直连访问会失败，不会悄悄转代理消耗流量。
-
-**远程更新：**`--remote on` 加入 7 份已核验为域名规则的原生远程分类：OpenAI、Claude、GitHub、百度、iCloud、AppleDev、AppleFirmware；国内列表仍远程引用。原有静态 AI/APNs 保护和分类快照继续保留，防止一次替换损失覆盖。静态部分随重新导出刷新；不是所有规则都能在手机后台更新。
-
-**手机只设置一次：**导入并启用新文件，全局路由选「配置」，节点继续用原订阅；如旧 APNs 模块已启用，关闭它。然后到「设置 → 自动更新 → 配置」开启自动后台更新，间隔 1 天，并在 iOS 允许 Shadowrocket 后台 App 刷新；有 GeoLite2 自动更新选项时也开启。本地配置没有整体 `update-url`，只更新引用资源，不覆盖你的推送/DNS设置。iOS 后台调度可能延后，强制划掉应用后应重新打开。
-
-目前已通过导出、格式转换、重复导出、规则保留和防覆盖测试，尚未进行 Shadowrocket 内核/iPhone 实机验收。详细步骤见 [Shadowrocket 适配说明](skills/clash-smart-routing/references/shadowrocket.md)。
-
-## 在另一台设备使用
-
-对 Codex 说：
-
-> 从 GitHub 仓库 ybwdaisy/clash-smart-routing-skill 安装 skills/clash-smart-routing，然后用它配置并验证本机 Clash 的省流分流。
-
-仓库若为私有，设备上的 GitHub 连接需要能够访问它。也可以克隆后把 `skills/clash-smart-routing` 放入 `~/.codex/skills/`，Claude Code 使用 `~/.claude/skills/`。启用新安装的 Skill 后，调用 `$clash-smart-routing`（Claude Code 可按其 Skill 调用方式执行）。
-
-## 策略
-
-| 优先级 | 流量 | 处理 |
-|---|---|---|
-| 1 | ChatGPT / Claude / 其他境外 AI、Apple Intelligence、GitHub | 独立代理组，禁止 DIRECT 兜底 |
-| 2 | 内网域名、实际解析到私有 IPv4 / IPv6 的域名 | 直连 |
-| 3 | 百度网盘、iCloud、Apple 开发下载与系统更新 | 维护中的服务分类直连 |
-| 4 | 国内域名与国内 IP（包括未单独列举的国内视频/CDN） | 优先直连，覆盖订阅的代理决定 |
-| 5 | 其余流量的订阅原有规则 | 完整保留，顺序不变 |
-| 6 | 其余流量 | 原订阅 MATCH 兜底 |
-
-“保留订阅”指不修改订阅文件、删除或重排规则。AI / 内网 / 下载分类 / 通用国内域名与 IP 都有更高优先级的本地覆盖层；国内流量不再先被订阅的代理规则截获。AI 优先于直连。百度/iCloud/Apple 是下载验收例子，不代表只支持这些服务；抖音、B站、微信等国内服务与新出现的国内 CDN 也按通用域名/IP 分类处理，不按 App 整体放行。规则集每天更新，代理节点和配置目录按设备识别。
-
-这是分类与路由策略，不会探测所有网站是否被 GFW 拦截；也不会通过 DIRECT 静默绕过 AI 代理故障。节点地区和账号权限仍会影响 AI 服务是否可用。
-
-## 手动运行
-
-需要 Node.js 18+、npm、curl、Clash Verge / Rev（Mihomo），以及可访问的本机控制接口（Unix socket 或 HTTP）。macOS、Windows、Linux 有常见配置目录探测；本机安装和内核验证见测试记录，其他平台需要在真实设备验收。
+保持客户端运行，依次预览、应用和核验：
 
 ```sh
-npm --prefix skills/clash-smart-routing ci --ignore-scripts --no-audit --no-fund
-node skills/clash-smart-routing/scripts/clash-router.cjs discover
 node skills/clash-smart-routing/scripts/clash-router.cjs plan
 node skills/clash-smart-routing/scripts/clash-router.cjs apply
 node skills/clash-smart-routing/scripts/clash-router.cjs verify
-node skills/clash-smart-routing/scripts/probe.cjs
-node skills/clash-smart-routing/scripts/traffic-audit.cjs
-# 恢复上一次安装前状态
-node skills/clash-smart-routing/scripts/clash-router.cjs rollback
 ```
 
-多个客户端时加 `--config-dir "实际配置目录"`，找不到内核时加 `--core "mihomo路径"`。设备专属内网域名可通过本机 JSON 文件 `--settings-file` 的 `intranetDomains` 数组补充；正常解析到私有 IP 的域名无需逐个添加。
+分类数据每天刷新。更新功能时，在仓库执行 `git pull --ff-only`，重新安装依赖，再执行 `apply` 和 `verify`。
 
-备份、候选配置和本机设置仅写入客户端配置目录的 `smart-routing-state`，不会上传 GitHub。现有全局脚本会先执行，再叠加新策略。验证失败恢复原配置；订阅后来更新过则不恢复过时节点，按 Skill 的恢复说明处理。
+按需检查代理大流量：`node skills/clash-smart-routing/scripts/traffic-audit.cjs`。回滚上次应用：`node skills/clash-smart-routing/scripts/clash-router.cjs rollback`。
 
-## 开发验证
+### Shadowrocket（小火箭）
+
+先从手机导出当前配置，在电脑上保存为 `original.conf`，再生成合并版：
 
 ```sh
-node --test tests/*.test.cjs
+node skills/clash-smart-routing/scripts/shadowrocket.cjs \
+  --input ./original.conf --output ./smart-routing.conf \
+  --dns saving --remote on
 ```
 
-测试覆盖规则完整保留、AI 无直连兜底、Apple AI 与 iCloud 优先级、节点切换、重复安装、现有脚本组合和无 MATCH 场景。本机 macOS / Mihomo v1.19.33 已完成内核校验和小请求路由验证。验收覆盖 OpenAI、Claude、GitHub 代理；百度网盘、iCloud、Apple 开发下载、私有 IP，以及通用国内域名/IP 直连。只发小请求，未实际下载多 GB 文件；Apple 测试地址返回 403，但连接链确认直连。其他设备安装后用 `probe.cjs` 验收，订阅更新后的客户端持久化仍需实机复查。
+原文件不覆盖，保留原规则、Host、重写和已有 APNs 推送代理例外。省流模式改用国内加密 DNS、系统 DNS 备用，并关闭直连解析失败后转代理。
 
-下载分类补充来自 [SukkaW/Surge](https://github.com/SukkaW/Surge) 的国内 Apple/Microsoft CDN 数据（AGPL-3.0），不是将所有 CDN 或软件下载强制直连。按需 `traffic-audit.cjs` 会列出当前代理大流量、国内误代理候选和无法判定的 IP；不自动断开连接，也不创建后台任务。
+手机端只需设置一次：
 
-使用上游维护的 [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat) 分类，通过 URL 引用，不打包规则数据。路由语义以 [Mihomo 文档](https://wiki.metacubex.one/en/config/rules/) 和 [Clash Verge 扩展执行顺序](https://www.clashverge.dev/guide/extend.html) 为准。
+1. 通过 iCloud / AirDrop 传入 `smart-routing.conf`，导入小火箭并启用。
+2. 全局路由选择「配置」，继续使用原订阅节点。
+3. 若生成结果中 `apnsProxyProtected` 为 `true`，停用重复的旧 APNs 模块，然后重连。
+4. 在「设置 → 自动更新 → 配置」开启后台更新，间隔 1 天，并允许 iOS 后台 App 刷新。
+
+远程分类由小火箭刷新；静态规则随重新生成配置更新。配置可通过 iCloud 同步。需要回退时，启用原配置即可。
+
+## 使用说明
+
+- 国内直连优先于订阅的代理决定；其余流量继续按订阅处理。
+- Shadowrocket 省流模式在直连 DNS 均不可用时会访问失败，不会自动转代理消耗流量。
+- 原配置可能含节点凭据，生成文件和备份请勿提交到公开仓库。
+- 已验证 macOS / Mihomo；手机配置通过生成检查，仍需在实际设备验证路由和推送。
+
+详细操作见 [Skill](skills/clash-smart-routing/SKILL.md) 和 [Shadowrocket 说明](skills/clash-smart-routing/references/shadowrocket.md)。分类来源：[MetaCubeX](https://github.com/MetaCubeX/meta-rules-dat)、[blackmatrix7](https://github.com/blackmatrix7/ios_rule_script)、[ACL4SSR](https://github.com/ACL4SSR/ACL4SSR)、[Sukka](https://github.com/SukkaW/Surge)（下载 CDN 数据，AGPL-3.0）。
