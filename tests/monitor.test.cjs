@@ -10,7 +10,8 @@ function fixture() {
   const ctx = {root, stateDir: path.join(root, 'smart-routing-state'), config: {},
     subscription: {rules: ['DOMAIN-SUFFIX,explicit.example.org,Proxy', 'AND,((NETWORK,UDP),(DST-PORT,443)),REJECT-DROP', 'MATCH,Proxy']}};
   fs.mkdirSync(ctx.stateDir); fs.writeFileSync(path.join(ctx.stateDir, 'settings.json'), '{"monitorEnabled":true}');
-  const applied = router.engine.apply({proxies: [{name: 'node', type: 'ss'}], rules: ctx.subscription.rules}, {monitorEnabled: true});
+  const applied = router.engine.apply({proxies: [{name: 'node', type: 'ss'}], 'proxy-groups':[{name:'Proxy',type:'select',proxies:['node']}], rules: ctx.subscription.rules}, {monitorEnabled: true});
+  ctx.config = applied;
   const rules = applied.rules.filter(router.engine.managedRule).map(r => { const [, payload, proxy] = r.split(','); return {type: 'RuleSet', payload, proxy}; });
   const providers = Object.fromEntries(Object.keys(router.engine.sources).map(k => [router.engine.prefix + k, {ruleCount: 1}]));
   providers['smart-routing-learned'] = {ruleCount: 0};
@@ -18,7 +19,7 @@ function fixture() {
   const api = async (method, route) => {
     if (route === '/configs') return {mode: 'rule', tun: {enable: tun}};
     if (route === '/rules') return {rules};
-    if (route === '/proxies/' + encodeURIComponent(router.engine.group)) return {all: ['node'], now: 'node'};
+    if (route === '/proxies') return {proxies:{[router.engine.group]:{type:'Selector',all:['Proxy'],now:'Proxy'},Proxy:{type:'Selector',now:'node'},node:{type:'Shadowsocks'}}};
     if (route === '/providers/rules') return {providers};
     if (route === '/connections') return {connections};
     if (method === 'PUT' && route === '/providers/rules/smart-routing-learned') {

@@ -35,15 +35,16 @@ test('domestic classification precedes explicit subscription proxy/reject withou
   }
   assert.deepEqual(Array.from(rules.slice(15)),fixture().rules);
 });
-test('AI routes cannot inherit DIRECT/COMPATIBLE from subscription selector or empty providers', () => {
-  const result = engine.apply(fixture(), {preferredNode:'Preferred node'}); const group = result['proxy-groups'].at(-1);
-  assert.deepEqual(Array.from(group.proxies), ['Preferred node','First node']); assert.equal(group['empty-fallback'],'REJECT');
-  assert.equal(group.type,'fallback'); assert.ok(!group.proxies.includes('Existing'));
+test('AI follows the existing selector by reference, without independent automatic node selection', () => {
+  const result = engine.apply(fixture(), {preferredNode:'Preferred node'}), group = result['proxy-groups'].at(-1);
+  assert.deepEqual(Array.from(group.proxies), ['Existing']); assert.equal(group.type, 'select'); assert.equal(group.interval, 0);
+  assert.equal(group.url, 'https://chatgpt.com/robots.txt'); assert.equal(group['expected-status'], 200); assert.equal(group['empty-fallback'], 'REJECT');
   const providersOnly = fixture(); providersOnly.proxies=[]; providersOnly['proxy-providers']={airport:{type:'http',url:'https://example.invalid/sub'}};
-  const p = engine.apply(providersOnly, {})['proxy-groups'].at(-1); assert.deepEqual(Array.from(p.use),['airport']); assert.equal(p['empty-fallback'],'REJECT');
+  providersOnly['proxy-groups']=[{name:'Existing',type:'select',use:['airport']}];
+  assert.deepEqual(Array.from(engine.apply(providersOnly, {})['proxy-groups'].at(-1).proxies), ['Existing']);
 });
 test('refuses unsafe no-proxy config and namespace collisions instead of silently changing routing', () => {
-  const empty=fixture(); empty.proxies=[]; assert.throws(()=>engine.apply(empty,{}),/No real proxy/);
+  const empty=fixture(); empty.proxies=[]; empty['proxy-groups']=[]; assert.throws(()=>engine.apply(empty,{}),/selector is missing/);
   const collision=fixture(); collision['rule-providers']['smart-routing-ai']={type:'http',url:'https://example.invalid/user-owned'};
   assert.throws(()=>engine.apply(collision,{}),/collision/);
   assert.throws(()=>engine.apply(fixture(),{intranetDomains:['x,DIRECT']}),/domain names/);
@@ -51,7 +52,7 @@ test('refuses unsafe no-proxy config and namespace collisions instead of silentl
 test('repeat installation is idempotent; subscription updates and node renames are incorporated', () => {
   const once=copy(engine.apply(fixture(),{})); assert.deepEqual(copy(engine.apply(copy(once),{})),once);
   const updated=fixture(); updated.proxies=[{name:'New device node',type:'vless'}]; updated.rules.splice(1,0,'DOMAIN-SUFFIX,new.example,Existing');
-  const result=engine.apply(updated,{}); assert.equal(result['proxy-groups'].at(-1).proxies[0],'New device node');
+  const result=engine.apply(updated,{}); assert.equal(result['proxy-groups'].at(-1).proxies[0],'Existing');
   assert.ok(result.rules.includes('DOMAIN-SUFFIX,new.example,Existing'));
 });
 test('public-looking intranet domains can resolve to private addresses; inline data stays local', () => {
@@ -68,8 +69,9 @@ test('generated global extension preserves an existing script once and runs on f
   assert.ok(result.rules[0].includes('smart-routing-ai-guard'));
   assert.equal(script.split(existing).length-1,1);
 });
-test('does not invent a MATCH when subscription has no explicit fallback', () => {
-  const f=fixture();f.rules.pop(); const r=engine.apply(f,{});assert.ok(!r.rules.some(r=>r.startsWith('MATCH,')));
+test('requires an explicit upstream when no MATCH identifies the selector, without inventing MATCH', () => {
+  const f=fixture(); f.rules.pop(); assert.throws(()=>engine.apply(copy(f),{}),/Cannot identify/);
+  const r=engine.apply(f,{upstreamGroup:'Existing'}); assert.ok(!r.rules.some(r=>r.startsWith('MATCH,')));
 });
 test('optional learning follows protected/classified routes and is removed idempotently when disabled', () => {
   const f = fixture(), enabled = copy(engine.apply(copy(f), {monitorEnabled: true}));
@@ -100,7 +102,7 @@ test('uses a real Unix controller when HTTP control is disabled, without exposin
 });
 test('live verification refuses rules shadowed by a later client extension', async () => {
   const rules=engine.apply(fixture(),{}).rules.filter(engine.managedRule).map(r=>{const [type,payload,proxy]=r.split(',');return{type:'RuleSet',payload,proxy};});
-  const data={ '/rules':{rules}, ['/proxies/'+encodeURIComponent(engine.group)]:{all:['First node'],now:'First node'},
+  const data={ '/rules':{rules}, '/proxies':{proxies:{[engine.group]:{type:'Selector',all:['Existing'],now:'Existing'},Existing:{type:'Selector',now:'First node'},'First node':{type:'Shadowsocks'}}},
     '/configs':{mode:'rule'}, '/providers/rules':{providers:Object.fromEntries(Object.keys(engine.sources).map(k=>[engine.prefix+k,{ruleCount:1}]))}};
   const api=async(method,route)=>data[route];
   assert.equal((await verify({},api)).managedRules,15);
@@ -110,4 +112,16 @@ test('live verification refuses rules shadowed by a later client extension', asy
   data['/rules'].rules=before;
   data['/rules'].rules.unshift({type:'Match',payload:'',proxy:'DIRECT'});
   await assert.rejects(()=>verify({},api),/shadowed/);
+});
+
+test('verification follows live UI changes and rejects nested DIRECT without selecting another node', async () => {
+  const config=fixture(), rules=engine.apply(copy(config),{}).rules.filter(engine.managedRule).map(r=>{const [,payload,proxy]=r.split(','); return {type:'RuleSet',payload,proxy};});
+  const proxies={ [engine.group]:{type:'Selector',all:['Existing'],now:'Existing'}, Existing:{type:'Selector',now:'First node'},
+    'First node':{type:'Shadowsocks'},'Preferred node':{type:'Trojan'},DIRECT:{type:'Direct'}};
+  const data={'/rules':{rules},'/proxies':{proxies},'/configs':{mode:'rule'},'/providers/rules':{providers:Object.fromEntries(Object.keys(engine.sources).map(k=>[engine.prefix+k,{ruleCount:1}]))}};
+  const calls=[]; const api=async(method,route)=>{calls.push(method);return data[route];};
+  assert.equal((await verify({config},api)).aiSelectedNode,'First node');
+  proxies.Existing.now='Preferred node'; assert.equal((await verify({config},api)).aiSelectedNode,'Preferred node');
+  proxies.Existing.now='DIRECT'; await assert.rejects(()=>verify({config},api),/Main selection is not a real proxy/);
+  assert.ok(calls.every(m=>m==='GET'));
 });

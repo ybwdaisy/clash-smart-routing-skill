@@ -103,13 +103,8 @@ async function settingsFor(ctx, api, args) {
   const file = path.join(ctx.stateDir, 'settings.json');
   const settings = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   if (args['settings-file']) Object.assign(settings, JSON.parse(fs.readFileSync(args['settings-file'], 'utf8')));
-  try {
-    const catalog = (await api('GET', '/proxies')).proxies;
-    let name = String((ctx.subscription.rules || []).find(r => /^MATCH,/.test(r)) || '').split(',')[1];
-    const seen = new Set();
-    while (catalog[name] && catalog[name].now && !seen.has(name)) {seen.add(name); name = catalog[name].now;}
-    if ((ctx.config.proxies || []).some(p => p.name === name && !/^(direct|reject|pass|compatible)$/i.test(p.type))) settings.preferredNode = name;
-  } catch { /* Static nodes/provider fallback still has no DIRECT member. */ }
+  // Legacy node preferences must not create an AI route independent of the UI selection.
+  delete settings.preferredNode;
   return settings;
 }
 function render(existing, settings) {
@@ -148,15 +143,28 @@ function downloadRules(ctx, candidate) {
 async function verify(ctx, api, settings) {
   settings = settings || (ctx.stateDir && fs.existsSync(path.join(ctx.stateDir, 'settings.json'))
     ? JSON.parse(fs.readFileSync(path.join(ctx.stateDir, 'settings.json'), 'utf8')) : {});
-  const [rules, proxy, providers, live] = await Promise.all([
-    api('GET', '/rules'), api('GET', '/proxies/' + encodeURIComponent(engine.group)),
+  const [rules, catalog, providers, live] = await Promise.all([
+    api('GET', '/rules'), api('GET', '/proxies'),
     api('GET', '/providers/rules'), api('GET', '/configs')]);
   if (live.mode !== 'rule') throw Error('Runtime is not in rule mode');
-  if ((proxy.all || []).some(x => /^(DIRECT|COMPATIBLE)$/i.test(x)) || /^(DIRECT|COMPATIBLE)$/i.test(proxy.now || ''))
-    throw Error('AI proxy group can fall through to DIRECT');
+  const proxies = catalog.proxies || {}, proxy = proxies[engine.group];
+  if (!proxy || proxy.type !== 'Selector' || proxy.all?.length !== 1 || proxy.now !== proxy.all[0])
+    throw Error('Managed proxy must follow one main selector, without independent node selection');
+  const upstream = proxy.now;
+  if (ctx.config && upstream !== engine.upstreamTarget(ctx.config, settings))
+    throw Error('Managed proxy is not following the configured main selector');
+  const chain = [engine.group]; let selected = engine.group;
+  while (proxies[selected]?.now) {
+    selected = proxies[selected].now;
+    if (chain.includes(selected)) throw Error('Proxy selection cycle');
+    chain.push(selected);
+  }
+  const terminal = proxies[selected];
+  if (!terminal || /^(Direct|Reject|RejectDrop|Pass|Dns|Compatible)$/i.test(terminal.type) || /^(DIRECT|REJECT|REJECT-DROP|PASS|COMPATIBLE)$/i.test(selected))
+    throw Error('Main selection is not a real proxy; choose a proxy in the UI, no automatic alternate node is selected');
   const managed = (rules.rules || []).filter(r => r.type === 'RuleSet' && String(r.payload).startsWith(engine.prefix));
   const first = (rules.rules || [])[0];
-  const expected = engine.apply({proxies:[{name:'validation-node',type:'ss'}],rules:[]},settings).rules;
+  const expected = engine.apply({proxies:[{name:settings.upstreamGroup || 'validation-node',type:'ss'}],rules:['MATCH,' + (settings.upstreamGroup || 'validation-node')]},settings).rules.filter(engine.managedRule);
   if (managed.length !== expected.length || !first || first.type !== 'RuleSet' || first.payload !== engine.prefix + 'ai-guard' || first.proxy !== engine.group)
     throw Error('Managed rules missing or shadowed');
   if (!expected.every((text,i) => {
@@ -170,7 +178,7 @@ async function verify(ctx, api, settings) {
     counts[name] = item.ruleCount;
   }
   if (settings.monitorEnabled && !providers.providers[engine.prefix + 'learned']) throw Error('Learning provider missing');
-  return {mode: live.mode, managedRules: managed.length, domesticDirectBeforeSubscription: true, aiGroupHasDirect: false, aiGroupHasSelectedProxy: Boolean(proxy.now && proxy.now !== 'REJECT'), ruleProviders: counts,
+  return {mode: live.mode, managedRules: managed.length, domesticDirectBeforeSubscription: true, aiFollowsMainSelection: true, aiUpstream: upstream, aiSelectedNode: selected, aiGroupHasSelectedProxy: true, aiHealthCheckURL: proxy.testUrl, ruleProviders: counts,
     ...(settings.monitorEnabled ? {learnedRules: providers.providers[engine.prefix + 'learned'].ruleCount} : {})};
 }
 async function apply(ctx, api, args) {

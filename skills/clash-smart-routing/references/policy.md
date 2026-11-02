@@ -18,7 +18,7 @@ Do not route by file size, rewrite MATCH to DIRECT, or decide that a domain endi
 
 `smart-routing-state/verification.json` and backups live in the client configuration directory and may contain private metadata. Keep them out of Git. `verify` checks live rule mode, the managed proxy group and nonempty rule providers. Probe matching is an additional runtime check: inspect `metadata.host`, `destinationIP`, `rule`, `rulePayload` and `chains` from the local controller. Some proxy connections don't expose the destination IP, so mark them unknown instead of claiming complete geolocation coverage.
 
-HTTP authorization errors and Cloudflare challenges can occur even through a proxy. Routing all AI traffic through a proxy does not establish that its egress region is supported or the account is authorized. Preserve the current working selected node as the preferred fallback; do not replace it with the lowest-latency node indiscriminately.
+HTTP authorization errors and Cloudflare challenges can occur even through a proxy. Routing all AI traffic through a proxy does not establish that its egress region is supported or the account is authorized. AI follows the existing main selector by reference, including subsequent UI changes. Do not snapshot its current node into an independent AI fallback group. Test `https://chatgpt.com/robots.txt` for HTTP 200 and elapsed time; a successful Google test says nothing about ChatGPT. Failed tests must not change the user’s node selection. Verification rejects a selected DIRECT/REJECT leaf; the alias cannot prevent the user from later choosing DIRECT in the original selector.
 
 ## Updates and recovery
 

@@ -15,7 +15,7 @@ When preserving phone settings or notification optimization, merge the actual ex
 
 Apply these priorities through a separate global script; preserve every original subscription rule and its relative order:
 
-1. Foreign AI services (including OpenAI, Claude, Apple Intelligence) and GitHub use a managed proxy-only fallback group.
+1. Foreign AI services (including OpenAI, Claude, Apple Intelligence) and GitHub follow the user’s existing main proxy selector through a single-reference alias. Do not choose a separate AI node or add automatic switching.
 2. Intranet domain categories and private IPv4/IPv6 destinations go direct. Private-IP rules deliberately resolve domains, including public-looking names mapped to VPN/private IPs.
 3. Maintained service categories cover large downloads such as Baidu/iCloud/Apple developer downloads and updates, plus Sukka's China-specific Apple/Microsoft CDN classifications. These are examples, not the complete supported app list.
 4. All maintained China domains and China IP destinations go direct BEFORE subscription rules, including a newly seen video CDN hostname resolving to a China IP.
@@ -42,7 +42,9 @@ The helper detects common macOS, Windows and Linux Clash Verge directories. When
 
 `plan` is read-only. `apply` downloads roughly a megabyte of maintained rule data through the existing local proxy, validates with the actual Mihomo kernel, privately backs up the previous script/runtime, composes the existing global script, and reloads via the local controller (Unix socket or loopback HTTP). It does not edit subscriptions, node definitions, existing groups, DNS, TUN, ports or system proxy settings. Mode becomes Rule, as required for split routing. Updates are idempotent; do not concatenate multiple main functions manually.
 
-The managed proxy group uses real subscription nodes/providers, prefers the current selected node when available, excludes DIRECT-like node types, and rejects traffic if empty. It never inherits a subscription group's DIRECT option. Provider-backed airports and renamed nodes are supported without hardcoded group names.
+The managed group is a hidden single-reference alias to the main selector identified by the original MATCH rule. It follows future UI changes immediately; it has no independent node list or automatic fallback. If MATCH does not identify the desired selector, set `upstreamGroup` in a local settings JSON and pass `--settings-file <path>`; do not guess or hardcode device-specific group names. Legacy `preferredNode` is discarded. Verification resolves the live chain and refuses DIRECT/REJECT or cycles, without choosing another node. Selecting DIRECT in the main group also affects AI; do not claim this alias prevents that user choice.
+
+For AI connectivity, use `probe.cjs`: OpenAI’s public `https://chatgpt.com/robots.txt` must return HTTP 200, with TLS and total elapsed time reported separately from routing correctness. The alias uses this same URL for manual health checks, with automatic checks disabled (`interval: 0`). A failed check reports the failure; it never switches nodes. Leave the subscription’s own selector and automatic selection settings unchanged.
 
 Preserve existing authorization. An explicit request to configure this device permits the corresponding local changes; do not require another confirmation solely because this skill was loaded. Exporting this skill does not authorize uploading local profiles, controller secrets, runtime candidates or backups to GitHub.
 

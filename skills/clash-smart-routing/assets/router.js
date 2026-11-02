@@ -24,6 +24,16 @@ var SmartRouting = (function () {
     var fields = String(rule).split(",");
     return fields[0] === "RULE-SET" && fields[1].indexOf(PREFIX) === 0;
   }
+  function upstreamTarget(config, settings) {
+    var matches = (config.rules || []).filter(function (r) { return /^MATCH\s*,/i.test(r); });
+    var target = settings.upstreamGroup || (matches.length === 1 ? matches[0].split(",")[1].trim() : "");
+    if (!target || target === GROUP || /^(DIRECT|REJECT|REJECT-DROP|PASS|COMPATIBLE|GLOBAL)$/i.test(target))
+      throw new Error("Cannot identify the main proxy selector; specify upstreamGroup, not an independent AI node list");
+    var exists = (config["proxy-groups"] || []).some(function (g) { return g.name === target; }) ||
+      (config.proxies || []).some(function (p) { return p.name === target && !/^(direct|reject|reject-drop|pass|dns|compatible)$/i.test(p.type); });
+    if (!exists) throw new Error("Main proxy selector is missing: " + target);
+    return target;
+  }
   function apply(config, settings) {
     settings = settings || {};
     if (!Array.isArray(config.rules)) throw new Error("A rule-based subscription is required");
@@ -39,21 +49,13 @@ var SmartRouting = (function () {
     var groups = config["proxy-groups"] || [];
     if (groups.some(function (g) { return g.name === GROUP; }) && !oldProviders[PREFIX + "ai"])
       throw new Error("Reserved proxy-group name collision");
-    var forbidden = ["direct", "reject", "reject-drop", "pass", "dns", "compatible"];
-    var nodes = (config.proxies || []).filter(function (p) {
-      return p.name && forbidden.indexOf(String(p.type).toLowerCase()) < 0 &&
-        ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"].indexOf(String(p.name).toUpperCase()) < 0;
-    }).map(function (p) { return p.name; });
-    var providerNames = Object.keys(config["proxy-providers"] || {});
-    if (!nodes.length && !providerNames.length) throw new Error("No real proxy nodes/providers; refusing an AI DIRECT fallback");
-    if (nodes.indexOf(settings.preferredNode) >= 0)
-      nodes = [settings.preferredNode].concat(nodes.filter(function (n) { return n !== settings.preferredNode; }));
+    // Keep a single live reference to the user's selector, never a snapshot of its node.
+    var upstream = upstreamTarget(config, settings);
     var group = {
-      name: GROUP, type: "fallback", proxies: nodes, url: "https://www.gstatic.com/generate_204",
-      interval: 300, lazy: true, "empty-fallback": "REJECT",
-      "exclude-type": "Direct|Reject|RejectDrop|Pass|Dns|Compatible"
+      name: GROUP, type: "select", proxies: [upstream], hidden: true,
+      url: "https://chatgpt.com/robots.txt", "expected-status": 200,
+      interval: 0, "empty-fallback": "REJECT"
     };
-    if (providerNames.length) group.use = providerNames;
     config["proxy-groups"] = groups.filter(function (g) { return g.name !== GROUP; }).concat([group]);
     var providers = {};
     Object.keys(oldProviders).forEach(function (key) { if (key.indexOf(PREFIX) !== 0) providers[key] = oldProviders[key]; });
@@ -90,5 +92,5 @@ var SmartRouting = (function () {
     config.mode = "rule";
     return config;
   }
-  return {apply: apply, sources: SOURCES, sourceURL: sourceURL, group: GROUP, prefix: PREFIX, managedRule: managedRule, guards: GUARDS, privateRanges: PRIVATE};
+  return {apply: apply, upstreamTarget: upstreamTarget, sources: SOURCES, sourceURL: sourceURL, group: GROUP, prefix: PREFIX, managedRule: managedRule, guards: GUARDS, privateRanges: PRIVATE};
 })();

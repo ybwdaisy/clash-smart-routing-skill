@@ -12,7 +12,7 @@ async function probe(ctx, api, item, port) {
   let done = false, status = '', observed;
   const child = cp.spawn('curl', ['--silent', '--show-error', '--noproxy', '', '--proxy', 'http://127.0.0.1:' + port,
     '--connect-timeout', '8', '--max-time', '15', '--max-filesize', '1048576', '--range', '0-1023',
-    '--output', os.devNull, '--write-out', '%{http_code}', item.url], {stdio: ['ignore', 'pipe', 'ignore']});
+    '--output', os.devNull, '--write-out', '%{json}', item.url], {stdio: ['ignore', 'pipe', 'ignore']});
   child.stdout.on('data', b => {status += b;});
   let exitCode;
   child.on('error', () => {done = true; exitCode = 'launch-error';});
@@ -28,9 +28,11 @@ async function probe(ctx, api, item, port) {
   const hits = after.filter((r, i) => r.payload === item.provider && (r.extra?.hitCount || 0) > (before[i]?.extra?.hitCount || 0));
   const hit = observed ? observed.payload === item.provider && (item.direct ? observed.direct : observed.managedProxy)
     : hits.some(r => r.proxy === (item.direct ? 'DIRECT' : engine.group));
+  let timing = {}; try {timing = JSON.parse(status);} catch {}
   return {service: item.name, expected: item.direct ? 'DIRECT' : 'PROXY', passed: hit,
     evidence: observed ? 'connection-chain' : hits.length ? 'rule-hit-counter' : 'none',
-    matchedProvider: observed?.payload || hits[0]?.payload || null, httpStatus: status.trim() || null, exitCode};
+    matchedProvider: observed?.payload || hits[0]?.payload || null, httpStatus: timing.http_code || null, elapsedSeconds: timing.time_total ?? null, tlsSeconds: timing.time_appconnect ?? null,
+    ...(item.name === 'OpenAI' ? {publicEndpointReachable: exitCode === 0 && timing.http_code === 200} : {}), exitCode};
 }
 async function main(argv) {
   if (argv.length && (argv.length !== 2 || argv[0] !== '--config-dir')) throw Error('Usage: probe.cjs [--config-dir path]');

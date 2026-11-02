@@ -30,6 +30,8 @@ node skills/clash-smart-routing/scripts/clash-router.cjs apply
 node skills/clash-smart-routing/scripts/clash-router.cjs verify
 ```
 
+AI 跟随主界面的节点选择，不单独自动选节点。运行 `node skills/clash-smart-routing/scripts/probe.cjs` 可检查 ChatGPT 实际连通性和请求耗时，检测失败不会切换线路。
+
 分类数据每天刷新。更新功能时，在仓库执行 `git pull --ff-only`，重新安装依赖，再执行 `apply` 和 `verify`。
 
 按需检查代理大流量：`node skills/clash-smart-routing/scripts/traffic-audit.cjs`。回滚上次应用：`node skills/clash-smart-routing/scripts/clash-router.cjs rollback`。
