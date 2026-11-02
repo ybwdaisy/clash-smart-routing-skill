@@ -1,0 +1,41 @@
+name: Publish Shadowrocket config
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'skills/clash-smart-routing/**'
+      - 'tests/**'
+      - '.github/workflows/publish-shadowrocket.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publish-shadowrocket
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: skills/clash-smart-routing/package-lock.json
+      - name: Install exporter dependencies
+        run: npm --prefix skills/clash-smart-routing ci --ignore-scripts --no-audit --no-fund
+      - name: Test routing and export invariants
+        run: node --test tests/*.test.cjs
+      - name: Generate and validate public configuration
+        run: node skills/clash-smart-routing/scripts/publish-shadowrocket.cjs
+      - name: Publish only generated routing files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add shadowrocket/smart-routing.conf shadowrocket/smart-routing.sources.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Update generated Shadowrocket config'
+          git push origin HEAD:main
