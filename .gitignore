@@ -14,3 +14,5 @@ exports/
 *.manifest.json
 *.conf
 !skills/clash-smart-routing/assets/shadowrocket.example.conf
+!skills/clash-smart-routing/assets/shadowrocket-public-base.conf
+!shadowrocket/smart-routing.conf

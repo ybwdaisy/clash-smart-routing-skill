@@ -1,0 +1,90 @@
+{
+  "format": 1,
+  "sourceCommit": "8c57f929873be623cf91f81b4751877130921447",
+  "updateURL": "https://raw.githubusercontent.com/ybwdaisy/clash-smart-routing-skill/main/shadowrocket/smart-routing.conf",
+  "outputSha256": "878e703d923af8a356baa013211399799b5757aad3b7b70884899e74628557e2",
+  "baseSha256": "f26d0ef8144ba0a4955eb63951ab127719c7c0257d3c70a3f8949fc8e8ed97df",
+  "sources": {
+    "ai": {
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ai-!cn.list",
+      "sha256": "47217f688e054f0af61e83ec7dabdb52cb25818b42dc6fa89706534d01654037"
+    },
+    "apple-ai": {
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple-intelligence.list",
+      "sha256": "3f01d5c8bff62b69e0ea0cae5b96c98bf004bf0a27afe0772a612f5644a61592"
+    },
+    "github": {
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/github.list",
+      "sha256": "e1f8c98a265ce67ffaddded86e71d0d76595212eb4f331eb2d2e52e52d07beda"
+    },
+    "private": {
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.list",
+      "sha256": "db9b2da8d7e90f09e183dcde096f72adaacd8de21e0f09d364b413085ecb7b57"
+    },
+    "baidu": {
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/baidu.list",
+      "sha256": "2530928bdfac8d8ff2b20515427846af81eb9c09ed88e89fb0a7d34ded6a63a3"
+    },
+    "icloud": {
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/icloud.list",
+      "sha256": "d8092fc2646980935731cb04e09c865bb11f175d2a07735f3f6390e8b30aa6c1"
+    },
+    "apple-dev": {
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple-dev.list",
+      "sha256": "028f0ab6829bcee63ac28e5046a10d36094c604b99f2e0b713f31ce85e03bb6c"
+    },
+    "apple-update": {
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple-update.list",
+      "sha256": "1026268082ce0c7dd331c89009cfa2016269d2a5919f0a207e54a2189f377c4b"
+    },
+    "download-apple-cn": {
+      "url": "https://ruleset.skk.moe/Clash/domainset/apple_cdn.txt",
+      "sha256": "353e7f1244fe816019036274f13762ecaf25c29b3f4a01ab952fc3f1281626d3"
+    },
+    "download-microsoft-cn": {
+      "url": "https://ruleset.skk.moe/Clash/non_ip/microsoft_cdn.txt",
+      "sha256": "6c65a1a343202aeab12279c427d72bf8f1508629d6b906f39accbe76fe58434e"
+    }
+  },
+  "remoteSources": {
+    "openai": {
+      "url": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/OpenAi.list",
+      "rules": 17,
+      "sha256": "c4f839e4dda6cb96e4373349c72b4e5f848b8ae03564c0d0eae0873955310129"
+    },
+    "claude": {
+      "url": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Shadowrocket/Claude/Claude.list",
+      "rules": 3,
+      "sha256": "870e7e25d798e7f00338507f773b0eea4dfd15e25e9df0a27d5ae421ae1ab378"
+    },
+    "github": {
+      "url": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Shadowrocket/GitHub/GitHub.list",
+      "rules": 31,
+      "sha256": "ced8ab0ecda5775d04ec8ee6a57b282181108565331a6a1d85e9a26fee25d79b"
+    },
+    "baidu": {
+      "url": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Shadowrocket/Baidu/Baidu.list",
+      "rules": 251,
+      "sha256": "ac49361bba37ccd12f46dff78885ef07218d9dc9deb254d71d1c0431a7eb921a"
+    },
+    "icloud": {
+      "url": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Shadowrocket/iCloud/iCloud.list",
+      "rules": 61,
+      "sha256": "e34e2c63cb431ab0a1838d218aba4d8ddb102774f49727f3de44bc8261227475"
+    },
+    "apple-dev": {
+      "url": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Shadowrocket/AppleDev/AppleDev.list",
+      "rules": 40,
+      "sha256": "a87efe77959e71e86592d32aed87fc66335e739da4824c2ee1160203e01f5c4d"
+    },
+    "apple-update": {
+      "url": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Shadowrocket/AppleFirmware/AppleFirmware.list",
+      "rules": 174,
+      "sha256": "6b9b4f94b0a248eee3f1e72234e11f4c361daca2474c3d93bd14c91a4efec12d"
+    }
+  },
+  "apnsProxyProtected": true,
+  "originalPublicRulesPreserved": true,
+  "dnsMode": "saving",
+  "noNodesOrSubscriptionCredentials": true
+}

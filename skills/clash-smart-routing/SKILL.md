@@ -7,7 +7,7 @@ description: Configure traffic-saving routing for Clash Verge/Rev, monitor proxy
 
 Configure each device through the same maintained overlay, without exporting subscription secrets or asking the user to edit domain lists.
 
-For **Shadowrocket**, read [export and device verification](references/shadowrocket.md). Use its separate `.conf` exporter; the Clash install/controller workflow below does not apply. Shadowrocket support currently means configuration export, not verified device automation or a background extension lifecycle.
+For **Shadowrocket**, read [remote configuration, private export and device verification](references/shadowrocket.md). A reviewed public remote `.conf` is automatically rebuilt by GitHub Actions after skill changes. Existing private settings still require the separate merger or a local extension. The Clash install/controller workflow below does not apply; publication is not proof of phone activation or background updates.
 
 When preserving phone settings or notification optimization, merge the actual exported `.conf`, not a generic template. For the requested traffic-saving update, use `--dns saving --remote on`: this explicitly replaces only three DNS/rollback settings, adds validated domain-only remote classifications, and retains static AI/APNs guards. Do not claim the phone configured its background updates automatically. The exporter detects original APNs PROXY intent and protects it before Apple/CN DIRECT; the Shadowrocket reference explains conflicting policies and independently enabled old modules.
 

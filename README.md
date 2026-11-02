@@ -47,7 +47,17 @@ node skills/clash-smart-routing/scripts/routing-monitor.cjs status
 
 ### Shadowrocket（小火箭）
 
-先从手机导出当前配置，在电脑上保存为 `original.conf`，再生成合并版：
+手机可直接导入[远程省流配置](https://raw.githubusercontent.com/ybwdaisy/clash-smart-routing-skill/main/shadowrocket/smart-routing.conf)：
+
+1. 小火箭「配置 → ＋」，粘贴上面的链接下载，点击「使用配置」。
+2. 全局路由选择「配置」，首页继续选择原订阅的节点。
+3. 「设置 → 自动更新 → 配置」开启后台更新，间隔 1 天；在 iOS 设置中允许小火箭后台 App 刷新。
+
+此公开配置包含省流 DNS、国内/内网直连、AI 代理和 APNs 推送代理优化，不包含节点账号或订阅。若此前启用了旧的 APNs 模块，停用重复模块再重连。AI 跟随首页选择的节点，不会单独自动选路。
+
+技能更新到 GitHub 后，[Actions](https://github.com/ybwdaisy/clash-smart-routing-skill/actions/workflows/publish-shadowrocket.yml) 自动测试并生成新版配置；失败时保留旧版。手机按设置拉取，**不是即时推送**；立即更新可点远程配置的「更新配置」。仅更新节点订阅不会更新分流配置，iCloud 同步也不等于拉取 GitHub 新版。
+
+远程更新会覆盖该配置内的个人修改。已有额外 Host、重写或自定义规则时，继续用下面的私有合并导出，或先在手机建立扩展配置保存个人设置：
 
 ```sh
 node skills/clash-smart-routing/scripts/shadowrocket.cjs \
@@ -55,22 +65,13 @@ node skills/clash-smart-routing/scripts/shadowrocket.cjs \
   --dns saving --remote on
 ```
 
-原文件不覆盖，保留原规则、Host、重写和已有 APNs 推送代理例外。省流模式改用国内加密 DNS、系统 DNS 备用，并关闭直连解析失败后转代理。
-
-手机端只需设置一次：
-
-1. 通过 iCloud / AirDrop 传入 `smart-routing.conf`，导入小火箭并启用。
-2. 全局路由选择「配置」，继续使用原订阅节点。
-3. 若生成结果中 `apnsProxyProtected` 为 `true`，停用重复的旧 APNs 模块，然后重连。
-4. 在「设置 → 自动更新 → 配置」开启后台更新，间隔 1 天，并允许 iOS 后台 App 刷新。
-
-远程分类由小火箭刷新；静态规则随重新生成配置更新。配置可通过 iCloud 同步。需要回退时，启用原配置即可。
+私有导出保留原规则、Host、重写和推送优化，输出不覆盖输入；通过 iCloud / AirDrop 导入启用，不提交到 GitHub。原节点订阅独立保留。回退时启用原配置即可。
 
 ## 使用说明
 
 - 国内直连优先于订阅的代理决定；其余流量继续按订阅处理。
 - Shadowrocket 省流模式在直连 DNS 均不可用时会访问失败，不会自动转代理消耗流量。
-- 原配置可能含节点凭据，生成文件和备份请勿提交到公开仓库。
+- 私人配置和备份请勿提交。仓库中只有经检查的公开模板、生成配置与来源清单；公开生成数据含 Sukka 的 AGPL-3.0 规则，附来源及许可证。
 - 已验证 macOS / Mihomo；手机配置通过生成检查，仍需在实际设备验证路由和推送。
 
 详细操作见 [Skill](skills/clash-smart-routing/SKILL.md) 和 [Shadowrocket 说明](skills/clash-smart-routing/references/shadowrocket.md)。分类来源：[MetaCubeX](https://github.com/MetaCubeX/meta-rules-dat)、[blackmatrix7](https://github.com/blackmatrix7/ios_rule_script)、[ACL4SSR](https://github.com/ACL4SSR/ACL4SSR)、[Sukka](https://github.com/SukkaW/Surge)（下载 CDN 数据，AGPL-3.0）。
