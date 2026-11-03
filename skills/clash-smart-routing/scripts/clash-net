@@ -1,0 +1,26 @@
+#!/bin/sh
+# Managed by clash-smart-routing CLI v2
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
+if [ -f "$script_dir/node-recovery.cjs" ]; then
+  skill_dir=$(CDPATH= cd -- "$script_dir/.." && pwd) || exit 1
+else
+  skill_dir="${CODEX_HOME:-$HOME/.codex}/skills/clash-smart-routing"
+fi
+if [ ! -f "$skill_dir/scripts/node-recovery.cjs" ]; then
+  printf '%s\n' 'Install the clash-smart-routing skill before using clash-net.' >&2
+  exit 1
+fi
+if [ "${1:-}" = auto ]; then
+  shift
+  action="${1:-status}"
+  if [ "$#" -gt 0 ]; then shift; fi
+  case "$action" in
+    on) action=install ;;
+    off) action=uninstall ;;
+    status) ;;
+    *) printf '%s\n' 'Usage: clash-net auto on|off|status' >&2; exit 2 ;;
+  esac
+  exec node "$skill_dir/scripts/node-watchdog.cjs" "$action" "$@"
+fi
+if [ "$#" -eq 0 ]; then set -- recover; fi
+exec node "$skill_dir/scripts/node-recovery.cjs" "$@"

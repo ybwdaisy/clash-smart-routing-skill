@@ -1,6 +1,6 @@
 ---
 name: clash-smart-routing
-description: Configure traffic-saving routing for Clash Verge/Rev, monitor proxy waste and learn verified direct endpoints on macOS, or export a Shadowrocket config preserving original rules and push settings. Keep AI proxied and subscription sources intact. Use for split routing, migration and proxy traffic diagnosis.
+description: Configure traffic-saving routing for Clash Verge/Rev, diagnose proxy waste, recover Codex connectivity with JP/TW/US main nodes on demand or through an explicitly enabled local watchdog, or export Shadowrocket configs preserving original rules and push settings. Keep subscription sources intact.
 ---
 
 # Clash Smart Routing
@@ -15,7 +15,7 @@ When preserving phone settings or notification optimization, merge the actual ex
 
 Apply these priorities through a separate global script; preserve every original subscription rule and its relative order:
 
-1. Foreign AI services (including OpenAI, Claude, Apple Intelligence) and GitHub follow the user’s existing main proxy selector through a single-reference alias. Do not choose a separate AI node or add automatic switching.
+1. Foreign AI services (including OpenAI, Claude, Apple Intelligence) and GitHub follow the user’s existing main proxy selector through a single-reference alias. Do not choose a separate AI node. Recovery preserves main selector -> existing automatic group, updating only that group's runtime fixed node. Recovery is on demand unless the user explicitly enables the local watchdog described below.
 2. Intranet domain categories and private IPv4/IPv6 destinations go direct. Private-IP rules deliberately resolve domains, including public-looking names mapped to VPN/private IPs.
 3. Maintained service categories cover large downloads such as Baidu/iCloud/Apple developer downloads and updates, plus Sukka's China-specific Apple/Microsoft CDN classifications. These are examples, not the complete supported app list.
 4. All maintained China domains and China IP destinations go direct BEFORE subscription rules, including a newly seen video CDN hostname resolving to a China IP.
@@ -62,6 +62,14 @@ Connection inspection may contain private hosts, process names and IPs. Keep evi
 ## On-demand traffic audit
 
 Run `node <skill-dir>/scripts/traffic-audit.cjs` for current connections: proxied domestic candidates, largest active proxy downloads and unknown destination IPs. It downloads/caches public domain/CIDR data, redacts node names and detailed host labels, and never closes connections or schedules background work. Missing destination IPs are unknown, not verified foreign. AI/GitHub/APNs proxy exceptions are not mistakes. Active-connection bytes are not the airport bill. Existing REJECT rules after the overlay are counted for overlap review; do not reorder complex original rules automatically.
+
+## On-demand Codex connection recovery
+
+The user command is **`clash-net`**. Install the executable `scripts/clash-net` into `~/.local/bin/clash-net` when setting up the CLI; preserve existing PATH settings if that directory is already present. The launcher supports `check`, `plan`, `recover`, `status`, `rollback`, and `auto on|off|status`, and locates this installed skill without needing the original checkout.
+
+When the user asks to repeat latency testing and choose a fast non-Hong-Kong node, read [node recovery](references/node-recovery.md). `node <skill-dir>/scripts/node-recovery.cjs check` checks the current route without selecting a node. Explicit `recover` measures Japan/Taiwan/US leaf nodes from the existing automatic group using its own test URL, then pins the fastest sub-200ms candidate INSIDE that automatic group. Keep the main selector pointing to the automatic group; if the user selected elsewhere, pause instead of changing the main selector. Verify latency and a source-port-correlated ChatGPT request including both groups and the selected node. Never create a separate AI group or edit subscription rules, group definitions, test URLs or intervals. Failed verification restores the previous fixed node, or clears the fixed override if the group was previously automatic, then stops. A public probe is not proof of an authenticated Codex session. Do not install background recovery from an on-demand request alone.
+
+For an explicit request to detect outages and recover without manual commands, the same [reference](references/node-recovery.md#自动检测与恢复macos) describes `node-watchdog.cjs install|status|uninstall`. This is an offline-capable local LaunchAgent, separate from AI-scheduled jobs and the domestic endpoint-learning monitor. While the desktop app is open, it checks a small unauthenticated HEAD request every 60 seconds and reads only classified recent operational Codex transport errors. Two consecutive transport failures or sustained new Codex network errors permit one call to the existing recovery flow; auth/quota/server responses alone do not. Persist a 10-minute success/30-minute failure cooldown and three attempts/hour. Verify both the loaded service and a recent live report; test fault-trigger behavior in isolated fixtures without taking down the user's working connection.
 
 ## Computer monitoring and bounded learning
 

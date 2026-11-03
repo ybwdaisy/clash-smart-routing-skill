@@ -32,6 +32,33 @@ node skills/clash-smart-routing/scripts/clash-router.cjs verify
 
 AI 跟随主界面的节点选择，不单独自动选节点。运行 `node skills/clash-smart-routing/scripts/probe.cjs` 可检查 ChatGPT 实际连通性和请求耗时，检测失败不会切换线路。
 
+Codex 连不上网时，可按需复现“测速 → 排除香港 → 选最快日本/台湾/美国节点 → 验证”的操作：
+
+```sh
+node skills/clash-smart-routing/scripts/node-recovery.cjs recover
+```
+
+保持「节点选择 → 自动选择」，只更新自动组内的固定节点，AI 一起跟随。候选及复测需低于 200ms，ChatGPT 公开请求与实际链路也需通过。失败恢复原固定节点或自动模式后停止。主组另选其他节点时暂停，不改回。`check` 只检查、`plan` 只测速、`status` 看结果、`rollback` 恢复原状态。公开端点成功仍需回到 Codex 验证实际请求。详见[节点恢复](skills/clash-smart-routing/references/node-recovery.md)。
+
+macOS 可选自动检测与恢复，不需要 Codex 先联网：
+
+```sh
+node skills/clash-smart-routing/scripts/node-watchdog.cjs install
+node skills/clash-smart-routing/scripts/node-watchdog.cjs status
+```
+
+每 60 秒发小请求并检查近期 Codex 传输错误，持续异常才执行上面的恢复流程；成功冷却 10 分钟，失败冷却 30 分钟，每小时最多 3 次。正常时安静，应用或 Clash 关闭时暂停。用 `node-watchdog.cjs uninstall` 停止；不会修改订阅、省流规则或另设 AI 节点。
+
+快捷命令叫 **`clash-net`**。安装 Skill 后，将其中的 `scripts/clash-net` 放进 PATH 目录即可使用；仓库内也可直接运行 `skills/clash-smart-routing/scripts/clash-net`。
+
+```sh
+clash-net              # 按需测速与恢复
+clash-net check        # 只检查，不切换
+clash-net auto status  # 自动检测状态
+clash-net auto on      # 启用自动检测（macOS）
+clash-net auto off     # 停止自动检测
+```
+
 分类数据每天刷新。更新功能时，在仓库执行 `git pull --ff-only`，重新安装依赖，再执行 `apply` 和 `verify`。
 
 按需检查代理大流量：`node skills/clash-smart-routing/scripts/traffic-audit.cjs`。回滚上次应用：`node skills/clash-smart-routing/scripts/clash-router.cjs rollback`。
