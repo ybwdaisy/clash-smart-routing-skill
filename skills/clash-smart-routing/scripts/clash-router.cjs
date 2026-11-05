@@ -304,7 +304,7 @@ async function main(argv) {
   if (command === 'select') return selectClient(ctx.root);
   if (ctx.client === 'flclash' && ['plan', 'apply', 'rollback'].includes(command)) return flclash.main(command, ctx, args);
   if (args.activate || args['adopt-hierarchy']) throw Error('Activation/hierarchy options are FlClash-specific');
-  const api = controller(ctx, {followActive: !args['config-dir'] || process.env.CLASH_NET_FOLLOW_ACTIVE === '1'});
+  const api = controller(ctx, {followActive: (process.platform === 'darwin' && !args['config-dir']) || process.env.CLASH_NET_FOLLOW_ACTIVE === '1'});
   if (command === 'verify') return verify(ctx, api);
   if (command === 'apply') return apply(ctx, api, args);
   if (command === 'rollback') return rollback(ctx, api);

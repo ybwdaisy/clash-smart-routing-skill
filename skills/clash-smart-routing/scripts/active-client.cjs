@@ -15,7 +15,7 @@ function select(roots, apps, bundleId) {
   const app = apps[0], identifier = bundleId(app.app);
   const matches = roots.filter(root => path.basename(root) === identifier);
   if (matches.length !== 1) return {status: 'paused-unconfigured-client', client: app.client};
-  return {status: 'active', client: app.client, root: matches[0], app: app.app};
+  return {status: 'active', client: app.client, appName: path.basename(app.app, '.app'), root: matches[0], app: app.app};
 }
 function detect(roots, deps = {}) {
   try {

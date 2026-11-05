@@ -76,6 +76,25 @@ test('recovery allows Singapore and other regions but never measures Hong Kong e
   assert.ok(!f.calls.some(c => c.route.includes(encodeURIComponent('香港 1')) || c.route.includes(encodeURIComponent('🇭🇰 Japan relay'))));
   assert.equal(f.proxies.Main.now, 'Auto');
 });
+test('non-macOS default commands retain manual client selection without requiring a running macOS app', async () => {
+  const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+  const router=require('../skills/clash-smart-routing/scripts/clash-router.cjs');
+  const f=fixture(),dir=fs.mkdtempSync(path.join(os.tmpdir(),'clash-nonmac-')),descriptor=Object.getOwnPropertyDescriptor(process,'platform');
+  const saved={load:router.load,resolve:router.resolveConfigDir,controller:router.controller};
+  try{
+    Object.defineProperty(process,'platform',{value:'linux'});f.ctx.stateDir=dir;f.ctx.client='verge';f.ctx.root=dir;
+    f.ctx.subscriptionFile=path.join(dir,'subscription.yaml');fs.writeFileSync(f.ctx.subscriptionFile,'original-subscription');
+    router.resolveConfigDir=()=>dir;router.load=()=>f.ctx;
+    router.controller=(ctx,options)=>{assert.equal(options.followActive,false);return f.api;};
+    const announced=[];
+    const r=await require('../skills/clash-smart-routing/scripts/node-recovery.cjs').main(['plan'],{onClient: x=>announced.push(x)});
+    assert.equal(r.status,'planned');assert.ok(f.calls.every(c=>c.method==='GET'));
+    assert.equal(r.clientName,'Clash Verge');assert.equal(r.selectionMode,'saved');assert.equal(announced[0].clientName,r.clientName);
+  }finally{
+    Object.defineProperty(process,'platform',descriptor);router.load=saved.load;router.resolveConfigDir=saved.resolve;router.controller=saved.controller;
+    fs.rmSync(dir,{recursive:true,force:true});
+  }
+});
 test('recover pins only the automatic group and preserves main -> automatic hierarchy and AI alias', async () => {
   const f = fixture(), alias = copy(f.proxies[engine.group]), main = copy(f.proxies.Main);
   const r = await run(f.ctx, f.api, 'recover', {}, f.deps);

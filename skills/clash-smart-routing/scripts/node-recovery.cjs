@@ -213,11 +213,15 @@ function argsOf(argv) {
   }
   return {command, opts};
 }
-async function main(argv) {
+async function main(argv, options = {}) {
   const {command, opts} = argsOf(argv);
+  const following = (process.platform === 'darwin' && !opts['--config-dir']) || process.env.CLASH_NET_FOLLOW_ACTIVE === '1';
   const ctx = router.load(router.resolveConfigDir(opts['--config-dir'])), api = router.controller(ctx,
-    {followActive: !opts['--config-dir'] || process.env.CLASH_NET_FOLLOW_ACTIVE === '1'}), latest = path.join(ctx.stateDir, 'node-recovery-latest.json');
-  if (command === 'status') return readJSON(latest);
+    {followActive: following}), latest = path.join(ctx.stateDir, 'node-recovery-latest.json');
+  const info = {client: ctx.client, clientName: ctx.client === 'flclash' ? 'FlClash' : 'Clash Verge',
+    selectionMode: following ? 'automatic' : opts['--config-dir'] ? 'fixed' : 'saved', configDirectory: ctx.root};
+  options.onClient?.(info);
+  if (command === 'status') return {...readJSON(latest), ...info};
   fs.mkdirSync(ctx.stateDir, {recursive: true, mode: 0o700});
   const lock = path.join(ctx.stateDir, 'node-recovery.lock'), undoFile = path.join(ctx.stateDir, 'node-recovery-undo.json');
   let fd;
@@ -237,6 +241,7 @@ async function main(argv) {
       onProgress: p => process.stderr.write(p.stage === 'testing' ? 'Testing ' + p.total + ' non-Hong-Kong nodes…\n' : 'Verifying the selected main node…\n')},
     {cancelled: () => cancelled, saveUndo: undo => router.writePrivate(undoFile, JSON.stringify(undo, null, 2) + '\n')});
     result.finishedAt = new Date().toISOString();
+    Object.assign(result, info);
     router.writePrivate(latest, JSON.stringify(result, null, 2) + '\n');
     return {...result, reportFile: latest};
   } finally {
@@ -244,13 +249,17 @@ async function main(argv) {
     fs.closeSync(fd); fs.unlinkSync(lock);
   }
 }
-function summary(r) {
+function clientLine(r) {
+  const mode = {automatic: '自动跟随', fixed: '指定目录', saved: '已保存目录'}[r.selectionMode] || r.selectionMode;
+  return '当前客户端：' + r.clientName + (mode ? '（' + mode + '）' : '');
+}
+function summary(r, {includeClient = true} = {}) {
   const labels = {recovered: '自动选择的固定节点已更新，并通过公开连通性验证', planned: '测速预览完成，未切换节点',
     'paused-main-not-automatic': '主组当前未指向自动选择，已暂停，保留你的选择',
     'public-endpoint-ok': '当前 ChatGPT 公开端点和连接链路正常', 'needs-attention': '当前公开连通性检查未通过',
     'no-green-candidate': '没有低于 200ms 的可用候选，未切换节点', 'verification-failed': '验证失败，已停止',
     cancelled: '已取消', 'rolled-back': '已恢复自动组原固定节点或自动模式', 'rollback-skipped': '当前选择已变化，未覆盖'};
-  const lines = [labels[r.status] || r.status];
+  const lines = [...(includeClient && r.clientName ? [clientLine(r)] : []), labels[r.status] || r.status];
   if (r.tested !== undefined) lines.push('测速：' + r.tested + ' 个非香港节点，' + r.reachable + ' 个有响应');
   if (r.fastest) lines.push('最快：' + r.fastest.name + ' · ' + r.fastest.delayMs + 'ms');
   if (r.selected) lines.push('当前主节点：' + r.selected);
@@ -263,8 +272,8 @@ function summary(r) {
   lines.push('公开探测不验证 Codex 登录后的请求，请回到 Codex 发送一条消息确认。');
   return lines.join('\n');
 }
-if (require.main === module) main(process.argv.slice(2)).then(r => {
-  console.log(process.argv.includes('--json') ? JSON.stringify(r, null, 2) : summary(r));
+if (require.main === module) main(process.argv.slice(2), {onClient: r => {if (!process.argv.includes('--json')) console.log(clientLine(r));}}).then(r => {
+  console.log(process.argv.includes('--json') ? JSON.stringify(r, null, 2) : summary(r, {includeClient: false}));
   if (!['planned', 'recovered', 'public-endpoint-ok', 'rolled-back'].includes(r.status)) process.exitCode = 1;
 }).catch(e => { console.error(e.message); process.exitCode = 1; });
 module.exports = {isHongKong, region, resolve, inspect, measure, pool, publicProbe, restore, run, argsOf, main, summary};

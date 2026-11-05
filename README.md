@@ -50,6 +50,8 @@ macOS 下，`clash-net` 和后台服务会自动跟随当前运行的客户端�
 
 `clash-net config active` 查看当前识别结果。明确指定 `--config-dir` 仍可用于手动诊断；macOS 自动模式不受旧 `select` 记录影响，其他平台继续使用显式或已保存的目录。
 
+运行 `clash-net`、`check` 或 `status` 时，会先显示 `当前客户端：FlClash（自动跟随）` 或对应的 `Clash Verge`。JSON 输出和后台状态也包含当前 App 名称。
+
 AI 跟随主界面的节点选择，不单独自动选节点。运行 `node skills/clash-smart-routing/scripts/probe.cjs` 可检查 ChatGPT 实际连通性和请求耗时，检测失败不会切换线路。
 
 Codex 连不上网时，可按需复现“测速 → 排除香港 → 选最快可用节点 → 验证”的操作，其他地区（包括新加坡）均可参与：

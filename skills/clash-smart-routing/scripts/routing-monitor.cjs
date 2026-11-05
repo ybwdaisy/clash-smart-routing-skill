@@ -380,11 +380,11 @@ async function main(argv) {
   }
   if (command === 'status' && automatic) {
     const active = router.activeSelection(), follower = follow.status('monitor');
-    if (active.status !== 'active') return {backgroundServiceLoaded: serviceRunning(), mode: 'automatic', active, follower, report: null};
+    if (active.status !== 'active') return {backgroundServiceLoaded: serviceRunning(), mode: 'automatic', followingApp: null, active, follower, report: null};
     root = active.root;
     const file = path.join(router.load(root).stateDir, 'monitor-report.json');
     const report = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
-    return {backgroundServiceLoaded: serviceRunning(), mode: 'automatic', active, follower, report,
+    return {backgroundServiceLoaded: serviceRunning(), mode: 'automatic', followingApp: active.appName, active, follower, report,
       reportAgeSeconds: report ? Math.round((Date.now() - Date.parse(report.at)) / 1000) : null};
   }
   if (argv.length) {

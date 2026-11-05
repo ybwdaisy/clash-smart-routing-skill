@@ -197,9 +197,9 @@ async function main(argv) {
   if (command === 'watch' && automatic) return follow.run({service: 'node-watchdog', script: fs.realpathSync(__filename), router});
   if (command === 'status' && automatic) {
     const active = router.activeSelection(), follower = follow.status('node-watchdog');
-    if (active.status !== 'active') return {...serviceStatus(), mode: 'automatic', active, follower, report: null};
+    if (active.status !== 'active') return {...serviceStatus(), mode: 'automatic', followingApp: null, active, follower, report: null};
     const ctx = router.load(active.root);
-    return {...serviceStatus(), mode: 'automatic', active, follower, reportFile: reportFile(ctx),
+    return {...serviceStatus(), mode: 'automatic', followingApp: active.appName, active, follower, reportFile: reportFile(ctx),
       report: fs.existsSync(reportFile(ctx)) ? read(reportFile(ctx)) : null, lastAttempt: readState(ctx).lastAttempt};
   }
   if (process.platform === 'darwin' && command === 'uninstall') {

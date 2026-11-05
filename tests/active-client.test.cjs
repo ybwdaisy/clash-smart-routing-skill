@@ -6,7 +6,7 @@ const fl = '/Applications/FlClash.app/Contents/MacOS/FlClash', verge = '/Applica
 const bundleId = app => app.includes('FlClash') ? 'com.follow.clash' : 'io.github.fqfqgo.clash-verge-for-v2free';
 test('selection follows the running desktop app, never the shared proxy port or idle installed core', () => {
   const first = active.detect(roots, {processes: '1 ' + fl + '\n2 /Applications/Clash Verge.app/Contents/MacOS/verge-mihomo', bundleId});
-  assert.equal(first.root, roots[0]); assert.equal(first.client, 'flclash');
+  assert.equal(first.root, roots[0]); assert.equal(first.client, 'flclash');assert.equal(first.appName,'FlClash');
   assert.equal(active.detect(roots, {processes: '3 ' + verge, bundleId}).root, roots[1]);
 });
 test('both clients, neither client, unsupported root and failed process inspection pause instead of guessing', () => {
