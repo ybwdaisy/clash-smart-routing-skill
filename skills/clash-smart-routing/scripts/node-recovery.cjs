@@ -11,9 +11,12 @@ const digest = file => crypto.createHash('sha256').update(fs.readFileSync(file))
 const readJSON = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 const routeFor = name => '/proxies/' + encodeURIComponent(name);
 
+function isHongKong(name) {
+  return /香港|🇭🇰|(^|[^A-Za-z])(?:HKG?|Hong[ _-]*Kong)([^A-Za-z]|$)/i.test(String(name).normalize('NFKC'));
+}
 function region(name) {
   const s = String(name).normalize('NFKC');
-  if (/香港|🇭🇰|\b(?:HK|HKG)(?=[\d\W_]|$)|\bHong[\s_-]*Kong(?=[\d\W_]|$)/i.test(s)) return null;
+  if (isHongKong(s)) return null;
   if (/日本|🇯🇵|\bJapan\b|\b(?:JP|JPN)(?=[\d\W_]|$)/i.test(s)) return 'JP';
   if (/台湾|台灣|臺灣|🇹🇼|\bTaiwan\b|\b(?:TW|TWN)(?=[\d\W_]|$)/i.test(s)) return 'TW';
   if (/美国|美國|🇺🇸|\bUnited[\s_-]*States\b|\b(?:US|USA)(?=[\d\W_]|$)/i.test(s)) return 'US';
@@ -51,9 +54,9 @@ function inspect(ctx, proxies, explicitGroup) {
     throw Error('Unsupported latency URL');
   const candidates = [...new Set(auto.all || [])].filter(n => {
     const p = proxies[n];
-    return region(n) && p && !p.all && !NON_PROXY.test(p.type);
+    return !isHongKong(n) && p && !p.all && !NON_PROXY.test(p.type);
   }).map(name => ({name, region: region(name)}));
-  if (!candidates.length) throw Error('No named JP/TW/US leaf nodes selectable in the automatic group');
+  if (!candidates.length) throw Error('No non-Hong-Kong leaf nodes selectable in the automatic group');
   if (candidates.length > 256) throw Error('More than 256 eligible nodes; narrow the existing group before running');
   const alias = proxies[router.engine.group];
   if (alias && (alias.type !== 'Selector' || alias.now !== main || alias.all?.length !== 1 || alias.all[0] !== main))
@@ -211,9 +214,8 @@ function argsOf(argv) {
   return {command, opts};
 }
 async function main(argv) {
-  const {command, opts} = argsOf(argv), roots = opts['--config-dir'] ? [opts['--config-dir']] : router.discover();
-  if (roots.length !== 1) throw Error('Identify exactly one running client using --config-dir');
-  const ctx = router.load(roots[0]), api = router.controller(ctx), latest = path.join(ctx.stateDir, 'node-recovery-latest.json');
+  const {command, opts} = argsOf(argv);
+  const ctx = router.load(router.resolveConfigDir(opts['--config-dir'])), api = router.controller(ctx), latest = path.join(ctx.stateDir, 'node-recovery-latest.json');
   if (command === 'status') return readJSON(latest);
   fs.mkdirSync(ctx.stateDir, {recursive: true, mode: 0o700});
   const lock = path.join(ctx.stateDir, 'node-recovery.lock'), undoFile = path.join(ctx.stateDir, 'node-recovery-undo.json');
@@ -231,7 +233,7 @@ async function main(argv) {
       result = {command, ...(await restore(api, undo))};
       result.status = result.restored ? 'rolled-back' : 'rollback-skipped';
     } else result = await run(ctx, api, command, {latencyGroup: opts['--latency-group'],
-      onProgress: p => process.stderr.write(p.stage === 'testing' ? 'Testing ' + p.total + ' JP/TW/US nodes…\n' : 'Verifying the selected main node…\n')},
+      onProgress: p => process.stderr.write(p.stage === 'testing' ? 'Testing ' + p.total + ' non-Hong-Kong nodes…\n' : 'Verifying the selected main node…\n')},
     {cancelled: () => cancelled, saveUndo: undo => router.writePrivate(undoFile, JSON.stringify(undo, null, 2) + '\n')});
     result.finishedAt = new Date().toISOString();
     router.writePrivate(latest, JSON.stringify(result, null, 2) + '\n');
@@ -248,7 +250,7 @@ function summary(r) {
     'no-green-candidate': '没有低于 200ms 的可用候选，未切换节点', 'verification-failed': '验证失败，已停止',
     cancelled: '已取消', 'rolled-back': '已恢复自动组原固定节点或自动模式', 'rollback-skipped': '当前选择已变化，未覆盖'};
   const lines = [labels[r.status] || r.status];
-  if (r.tested !== undefined) lines.push('测速：' + r.tested + ' 个日本/台湾/美国节点，' + r.reachable + ' 个有响应');
+  if (r.tested !== undefined) lines.push('测速：' + r.tested + ' 个非香港节点，' + r.reachable + ' 个有响应');
   if (r.fastest) lines.push('最快：' + r.fastest.name + ' · ' + r.fastest.delayMs + 'ms');
   if (r.selected) lines.push('当前主节点：' + r.selected);
   if (r.current) lines.push('当前链路：' + r.current.chain.join(' → '));
@@ -264,4 +266,4 @@ if (require.main === module) main(process.argv.slice(2)).then(r => {
   console.log(process.argv.includes('--json') ? JSON.stringify(r, null, 2) : summary(r));
   if (!['planned', 'recovered', 'public-endpoint-ok', 'rolled-back'].includes(r.status)) process.exitCode = 1;
 }).catch(e => { console.error(e.message); process.exitCode = 1; });
-module.exports = {region, resolve, inspect, measure, pool, publicProbe, restore, run, argsOf, main, summary};
+module.exports = {isHongKong, region, resolve, inspect, measure, pool, publicProbe, restore, run, argsOf, main, summary};

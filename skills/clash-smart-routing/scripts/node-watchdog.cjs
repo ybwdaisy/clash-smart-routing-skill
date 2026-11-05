@@ -192,9 +192,7 @@ async function main(argv) {
   const command = argv[0] || 'status';
   if (!['install', 'uninstall', 'status', 'watch', 'once'].includes(command)) throw Error('Commands: install, uninstall, status, watch, once');
   if (argv.length !== 1 && argv.length !== 0 && (argv.length !== 3 || argv[1] !== '--config-dir')) throw Error('Use --config-dir with an explicit path');
-  const roots = argv[1] ? [argv[2]] : router.discover();
-  if (roots.length !== 1) throw Error('Identify exactly one client using --config-dir');
-  const root = roots[0], ctx = router.load(root), file = plistPath();
+  const root = router.resolveConfigDir(argv[1] ? argv[2] : undefined), ctx = router.load(root), file = plistPath();
   if (command === 'status') return {...serviceStatus(), reportFile: reportFile(ctx),
     report: fs.existsSync(reportFile(ctx)) ? read(reportFile(ctx)) : null, lastAttempt: readState(ctx).lastAttempt};
   if (command === 'watch') return watch(root);
@@ -205,7 +203,12 @@ async function main(argv) {
   if (command === 'install') {
     await router.verify(ctx, router.controller(ctx));
     const service = serviceStatus();
-    if (service.loaded) return {...service, alreadyInstalled: true, reportFile: reportFile(ctx)};
+    if (service.loaded) {
+      const previous = fs.readFileSync(file, 'utf8');
+      if (!previous.includes('<string>' + xml(ctx.root) + '</string>'))
+        throw Error('Watchdog is bound to another client; stop that service before installing for this client');
+      return {...service, alreadyInstalled: true, reportFile: reportFile(ctx)};
+    }
     const stableNode = ['/opt/homebrew/bin/node', '/usr/local/bin/node'].find(p => fs.existsSync(p) && fs.realpathSync(p) === fs.realpathSync(process.execPath)) || process.execPath;
     router.writePrivate(file, launchPlist(stableNode, fs.realpathSync(__filename), ctx.root));
     const started = cp.spawnSync('/bin/launchctl', ['bootstrap', 'gui/' + process.getuid(), file], {encoding: 'utf8', timeout: 10000});

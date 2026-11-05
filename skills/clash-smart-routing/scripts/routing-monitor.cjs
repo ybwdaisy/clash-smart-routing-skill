@@ -132,8 +132,17 @@ function readState(ctx) {
   if (state.version !== 1 || !state.entries || !state.budget || !state.totals) throw Error('Unsupported monitor state; inspect before reset');
   return state;
 }
+function learnedFile(ctx) {
+  const provider = ctx.config?.['rule-providers']?.[NAME];
+  if (ctx.client === 'flclash' && provider?.type === 'file' && provider.path) {
+    const file = path.resolve(ctx.root, provider.path);
+    if (!file.startsWith(ctx.root + path.sep)) throw Error('Unsafe FlClash learned-provider path');
+    return file;
+  }
+  return path.join(ctx.stateDir, 'learned.yaml');
+}
 async function publish(ctx, api, payload) {
-  const file = path.join(ctx.stateDir, 'learned.yaml'), text = YAML.stringify({payload});
+  const file = learnedFile(ctx), text = YAML.stringify({payload});
   const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : 'payload: []\n';
   const current = YAML.parse(before)?.payload;
   if (JSON.stringify(current) === JSON.stringify(payload)) {
@@ -158,7 +167,7 @@ async function clearLearned(ctx, api) {
   if (live) return publish(ctx, api, []);
   // A subscription refresh may have removed the provider entirely. Neutralize its
   // backing file before repairing the base overlay, without PUTting a missing provider.
-  router.writePrivate(path.join(ctx.stateDir, 'learned.yaml'), 'payload: []\n');
+  router.writePrivate(learnedFile(ctx), 'payload: []\n');
   return false;
 }
 function record(ctx, report) {
@@ -342,7 +351,7 @@ async function main(argv) {
   if (argv.length) {
     if (argv.length !== 2 || argv[0] !== '--config-dir') throw Error('Usage: routing-monitor.cjs install|status|once|watch|uninstall [--config-dir path]');
     root = argv[1];
-  } else { const roots = router.discover(); if (roots.length !== 1) throw Error('Choose one client with --config-dir'); root = roots[0]; }
+  } else { root = router.resolveConfigDir(); }
   const ctx = router.load(root);
   if (command === 'status') {
     const file = path.join(ctx.stateDir, 'monitor-report.json'), report = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;

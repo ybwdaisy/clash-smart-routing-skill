@@ -2,7 +2,7 @@
 'use strict';
 // On-demand, read-only connection audit. Never disconnects traffic or schedules jobs.
 const fs=require('node:fs'),path=require('node:path'),net=require('node:net'),cp=require('node:child_process');
-const {engine,discover,load,controller}=require('./clash-router.cjs');
+const {engine,resolveConfigDir,load,controller}=require('./clash-router.cjs');
 const {APNS_RANGES}=require('./shadowrocket.cjs');
 function address(value){
   if(typeof value!=='string')return null;
@@ -70,8 +70,7 @@ function cached(ctx,key,filename,proxy){
 }
 async function main(argv){
   if(argv.length&&(argv.length!==2||argv[0]!=='--config-dir'))throw Error('Usage: traffic-audit.cjs [--config-dir path]');
-  const roots=argv.length?[argv[1]]:discover();if(roots.length!==1)throw Error('Choose one active client with --config-dir');
-  const ctx=load(roots[0]),api=controller(ctx),port=ctx.config['mixed-port']||ctx.config.port,proxy=port?'http://127.0.0.1:'+port:null;
+  const ctx=load(resolveConfigDir(argv.length?argv[1]:undefined)),api=controller(ctx),port=ctx.config['mixed-port']||ctx.config.port,proxy=port?'http://127.0.0.1:'+port:null;
   await api('GET','/version');
   const ip=ranges(cached(ctx,'geoip/cn','cn-ip.list',proxy)),host=domains(cached(ctx,'geosite/cn','cn-domain.list',proxy));
   const active=await api('GET','/connections');return summarize(active.connections||[],ip,host,ctx.subscription.rules||[]);

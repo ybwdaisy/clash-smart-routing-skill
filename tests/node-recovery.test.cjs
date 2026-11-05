@@ -1,7 +1,7 @@
 'use strict';
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {region, resolve, inspect, measure, pool, restore, run, argsOf} = require('../skills/clash-smart-routing/scripts/node-recovery.cjs');
+const {isHongKong, region, resolve, inspect, measure, pool, restore, run, argsOf} = require('../skills/clash-smart-routing/scripts/node-recovery.cjs');
 const {engine} = require('../skills/clash-smart-routing/scripts/clash-router.cjs');
 const copy = x => JSON.parse(JSON.stringify(x));
 function fixture(overrides = {}) {
@@ -40,16 +40,20 @@ function fixture(overrides = {}) {
     probe: async () => ({publicEndpointReachable: true, routeVerified: true, authenticatedCodexSessionVerified: false})};
   return {ctx, proxies, api, calls, deps};
 }
-test('regional filter excludes Hong Kong before accepting JP/TW/US and rejects ambiguous non-regions', () => {
+test('region labels report metadata without determining candidate eligibility', () => {
   for (const name of ['香港 日本', '🇭🇰 USA', 'HK01 JP', 'HKG-01 TW', 'Hong Kong-US', 'HongKong01 日本', 'Singapore', 'Australia', 'Jupiter']) assert.equal(region(name), null, name);
   for (const name of ['日本1', '🇯🇵 node', 'JP01', 'Japan-2']) assert.equal(region(name), 'JP', name);
   for (const name of ['台湾1', '台灣2', '臺灣3', '🇹🇼 node', 'TW-01', 'Taiwan 2']) assert.equal(region(name), 'TW', name);
   for (const name of ['美国1', '美國2', '🇺🇸 node', 'US01', 'USA-2', 'United States']) assert.equal(region(name), 'US', name);
 });
+test('Hong Kong exclusion matches flags, full-width codes and mixed relay names without matching unrelated words', () => {
+  for (const name of ['🇭🇰 Japan relay', '香港01', 'HK01', 'SG_HKG_01', 'ｈｋ-1', 'Hong Kong-US', 'HongKong01']) assert.ok(isHongKong(name), name);
+  for (const name of ['Singapore', 'Taiwan', 'Japan', 'Shkodër', 'HKUSTest']) assert.ok(!isHongKong(name), name);
+});
 test('only real leaf nodes in the automatic group are eligible, including leaves absent from the main list', () => {
   const f = fixture();
   f.proxies.Auto.all.push('JP outside'); f.proxies['JP outside'] = {type: 'Shadowsocks'};
-  assert.deepEqual(inspect(f.ctx, f.proxies).candidates.map(x => x.name), ['日本 1', '台湾 1', '美国 1', 'JP outside']);
+  assert.deepEqual(inspect(f.ctx, f.proxies).candidates.map(x => x.name), ['日本 1', '台湾 1', '美国 1', 'Singapore', 'JP outside']);
   f.proxies[engine.group].all.push('美国 1');
   assert.throws(() => inspect(f.ctx, f.proxies), /AI alias/);
 });
@@ -61,9 +65,16 @@ test('missing/ambiguous automatic group and non-selector main fail without guess
 test('plan freshly measures eligible nodes without changing selection or rules', async () => {
   const f = fixture(), before = copy(f.proxies);
   const r = await run(f.ctx, f.api, 'plan', {}, f.deps);
-  assert.equal(r.status, 'planned'); assert.equal(r.fastest.name, '台湾 1'); assert.equal(r.tested, 3);
+  assert.equal(r.status, 'planned'); assert.equal(r.fastest.name, '台湾 1'); assert.equal(r.tested, 4);
   assert.deepEqual(f.proxies, before); assert.ok(f.calls.every(c => c.method === 'GET'));
   assert.ok(f.calls.filter(c => c.route.includes('/delay?')).every(c => c.route.includes(encodeURIComponent('https://latency.example/204'))));
+});
+test('recovery allows Singapore and other regions but never measures Hong Kong even if its delay is best', async () => {
+  const f = fixture({delays: {Singapore: 20, '香港 1': 1, '🇭🇰 Japan relay': 2}});
+  const r = await run(f.ctx, f.api, 'recover', {}, f.deps);
+  assert.equal(r.status, 'recovered'); assert.equal(r.selected, 'Singapore');
+  assert.ok(!f.calls.some(c => c.route.includes(encodeURIComponent('香港 1')) || c.route.includes(encodeURIComponent('🇭🇰 Japan relay'))));
+  assert.equal(f.proxies.Main.now, 'Auto');
 });
 test('recover pins only the automatic group and preserves main -> automatic hierarchy and AI alias', async () => {
   const f = fixture(), alias = copy(f.proxies[engine.group]), main = copy(f.proxies.Main);

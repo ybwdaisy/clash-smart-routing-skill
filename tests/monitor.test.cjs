@@ -106,6 +106,24 @@ test('TUN pauses learning and clears active rules; provider update failure resto
     assert.equal(f.providers['smart-routing-learned'].ruleCount, 0);
   } finally { f.clean(); }
 });
+test('FlClash publishes learned leases to the native provider path and rejects a path outside its directory', async () => {
+  const f = fixture();
+  try {
+    f.ctx.client = 'flclash';
+    const file = path.join(f.ctx.root, 'profiles/providers/profile-id/rules/native-md5-cache');
+    f.ctx.config['rule-providers']['smart-routing-learned'] = {type: 'file', path: file};
+    let count = -1;
+    const api = async (method, route) => {
+      if (method === 'GET') return {providers: {'smart-routing-learned': {ruleCount: count}}};
+      assert.equal(route, '/providers/rules/smart-routing-learned');
+      count = YAML.parse(fs.readFileSync(file, 'utf8')).payload.length;
+    };
+    await m.publish(f.ctx, api, ['DOMAIN,fixture.example.org']);
+    assert.equal(count, 1); assert.equal(fs.existsSync(path.join(f.ctx.stateDir, 'learned.yaml')), false);
+    f.ctx.config['rule-providers']['smart-routing-learned'].path = path.join(f.ctx.root, '../outside.yaml');
+    await assert.rejects(() => m.publish(f.ctx, api, []), /Unsafe FlClash/);
+  } finally { f.clean(); }
+});
 test('DNS resolution work and probes remain bounded even when all destination addresses are missing', async () => {
   const f = fixture(); let resolutions = 0;
   try {

@@ -10,6 +10,10 @@ if [ ! -f "$skill_dir/scripts/node-recovery.cjs" ]; then
   printf '%s\n' 'Install the clash-smart-routing skill before using clash-net.' >&2
   exit 1
 fi
+if [ "${1:-}" = config ]; then
+  shift
+  exec node "$skill_dir/scripts/clash-router.cjs" "$@"
+fi
 if [ "${1:-}" = auto ]; then
   shift
   action="${1:-status}"

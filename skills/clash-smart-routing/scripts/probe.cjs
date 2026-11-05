@@ -4,7 +4,7 @@
 const http = require('node:http');
 const os = require('node:os');
 const cp = require('node:child_process');
-const {discover, load, controller, verify, engine} = require('./clash-router.cjs');
+const {resolveConfigDir, load, controller, verify, engine} = require('./clash-router.cjs');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function probe(ctx, api, item, port) {
   const before = (await api('GET', '/rules')).rules;
@@ -36,9 +36,7 @@ async function probe(ctx, api, item, port) {
 }
 async function main(argv) {
   if (argv.length && (argv.length !== 2 || argv[0] !== '--config-dir')) throw Error('Usage: probe.cjs [--config-dir path]');
-  const roots = argv.length ? [argv[1]] : discover();
-  if (roots.length !== 1) throw Error('Identify one client using --config-dir');
-  const ctx = load(roots[0]), api = controller(ctx);
+  const ctx = load(resolveConfigDir(argv.length ? argv[1] : undefined)), api = controller(ctx);
   await verify(ctx, api);
   const port = (await api('GET', '/configs'))['mixed-port'] || ctx.config.port;
   if (!port) throw Error('An HTTP/mixed proxy listener is required for probes');

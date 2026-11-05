@@ -73,6 +73,14 @@ test('requires an explicit upstream when no MATCH identifies the selector, witho
   const f=fixture(); f.rules.pop(); assert.throws(()=>engine.apply(copy(f),{}),/Cannot identify/);
   const r=engine.apply(f,{upstreamGroup:'Existing'}); assert.ok(!r.rules.some(r=>r.startsWith('MATCH,')));
 });
+test('composed extension supports no previous script and lexical main definitions without recursive capture', () => {
+  for (const prior of ['', 'const main = config => { config.marker = "kept"; return config; };']) {
+    const context = {config: fixture()};
+    const out = vm.runInNewContext(render(prior, {}) + '\nmain(config)', context, {timeout: 1000});
+    assert.equal(out.rules[0], 'RULE-SET,smart-routing-ai-guard,Smart Routing · Proxy');
+    if (prior) assert.equal(out.marker, 'kept');
+  }
+});
 test('optional learning follows protected/classified routes and is removed idempotently when disabled', () => {
   const f = fixture(), enabled = copy(engine.apply(copy(f), {monitorEnabled: true}));
   const rule = 'RULE-SET,smart-routing-learned,DIRECT';

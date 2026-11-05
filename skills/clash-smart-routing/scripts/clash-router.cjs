@@ -8,6 +8,7 @@ const http = require('node:http');
 const cp = require('node:child_process');
 const vm = require('node:vm');
 const YAML = require('yaml');
+const flclash = require('./flclash-client.cjs');
 const asset = fs.readFileSync(path.join(__dirname, '../assets/router.js'), 'utf8');
 const engine = vm.runInNewContext(asset + '\nSmartRouting;', Object.create(null), {timeout: 1000});
 const hash = b => crypto.createHash('sha256').update(b).digest('hex');
@@ -33,13 +34,14 @@ function discover() {
     for (const item of fs.readdirSync(base, {withFileTypes: true})) {
       if (!item.isDirectory() || !/clash|verge/i.test(item.name)) continue;
       const root = path.join(base, item.name);
-      if (fs.existsSync(path.join(root, 'profiles/Script.js')) && fs.existsSync(path.join(root, 'clash-verge.yaml'))) found.push(root);
+      if ((fs.existsSync(path.join(root, 'profiles/Script.js')) && fs.existsSync(path.join(root, 'clash-verge.yaml'))) || flclash.isClient(root)) found.push(fs.realpathSync(root));
     }
   }
   return [...new Set(found)];
 }
 function load(root) {
   root = fs.realpathSync(root);
+  if (flclash.isClient(root)) return flclash.load(root);
   const scriptFile = path.join(root, 'profiles/Script.js');
   const runtimeFile = path.join(root, 'clash-verge.yaml');
   const registry = read(path.join(root, 'profiles.yaml'));
@@ -49,8 +51,25 @@ function load(root) {
   if (!selected || !selected.file) throw Error('No active subscription');
   const subscriptionFile = path.resolve(root, 'profiles', selected.file);
   if (!subscriptionFile.startsWith(path.join(root, 'profiles') + path.sep)) throw Error('Unsafe profile path');
-  return {root, scriptFile, runtimeFile, subscriptionFile, config: read(runtimeFile), subscription: read(subscriptionFile),
+  return {client: 'verge', root, scriptFile, runtimeFile, subscriptionFile, config: read(runtimeFile), subscription: read(subscriptionFile),
     stateDir: path.join(root, 'smart-routing-state')};
+}
+function bindingPath() { return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'clash-net/client.json'); }
+function selectClient(root) {
+  const ctx = load(root);
+  writePrivate(bindingPath(), JSON.stringify({version: 1, client: ctx.client, configDirectory: ctx.root}, null, 2) + '\n');
+  return {client: ctx.client, configDirectory: ctx.root};
+}
+function resolveConfigDir(explicit) {
+  if (explicit) return fs.realpathSync(explicit);
+  const roots = discover();
+  if (fs.existsSync(bindingPath())) {
+    const selected = JSON.parse(fs.readFileSync(bindingPath(), 'utf8'));
+    if (selected.version !== 1 || !roots.includes(selected.configDirectory)) throw Error('Selected client is unavailable; choose a client explicitly');
+    return selected.configDirectory;
+  }
+  if (roots.length !== 1) throw Error('Multiple/no supported clients; use --config-dir or select the intended client');
+  return roots[0];
 }
 function controller(ctx) {
   const base = fs.existsSync(path.join(ctx.root, 'config.yaml')) ? read(path.join(ctx.root, 'config.yaml')) : {};
@@ -109,26 +128,29 @@ async function settingsFor(ctx, api, args) {
 }
 function render(existing, settings) {
   return MARKER + '\n' + asset + '\nvar __previousMain = (function () {\n' + existing +
-    '\nreturn typeof main === "function" ? main : null;\n})();\nfunction main(config, profileName) {\n' +
+    '\nreturn typeof main === "function" ? main : null;\n})();\nvar main = function(config, profileName) {\n' +
     '  var previous = __previousMain ? __previousMain(config, profileName) : config;\n' +
-    '  return SmartRouting.apply(previous, ' + JSON.stringify(settings) + ');\n}\n';
+    '  return SmartRouting.apply(previous, ' + JSON.stringify(settings) + ');\n};\n';
 }
-function downloadRules(ctx, candidate) {
+function downloadRules(ctx, candidate, options = {}) {
   const port = ctx.config['mixed-port'] || ctx.config.port;
-  const proxy = port ? 'http://127.0.0.1:' + port : undefined;
+  const proxy = Object.hasOwn(options, 'proxy') ? options.proxy : port ? 'http://127.0.0.1:' + port : undefined;
   let bytes = 0;
   for (const [name, provider] of Object.entries(candidate['rule-providers'])) {
     if (!name.startsWith(engine.prefix) || provider.type !== 'http') continue;
     const file = path.resolve(ctx.root, provider.path);
     if (!file.startsWith(ctx.root + path.sep)) throw Error('Unsafe provider path');
     if (fs.existsSync(file) && fs.statSync(file).size > 0 && Date.now() - fs.statSync(file).mtimeMs < 86400000) continue;
-    const previous = Object.values(ctx.config['rule-providers'] || {}).find(p => p.url === provider.url && p.path);
-    if (previous) {
-      const cache = path.resolve(ctx.root, previous.path);
-      if (cache.startsWith(ctx.root + path.sep) && fs.existsSync(cache) && fs.statSync(cache).size > 0) {
-        writePrivate(file, fs.readFileSync(cache)); continue;
+    let copied = false;
+    for (const source of [{root: ctx.root, config: ctx.config}, ...(options.cacheConfigs || [])]) {
+      const previous = Object.values(source.config['rule-providers'] || {}).find(p => p.url === provider.url && p.path);
+      if (!previous) continue;
+      const cache = path.resolve(source.root, previous.path);
+      if (cache.startsWith(source.root + path.sep) && fs.existsSync(cache) && fs.statSync(cache).size > 0) {
+        writePrivate(file, fs.readFileSync(cache)); copied = true; break;
       }
     }
+    if (copied) continue;
     fs.mkdirSync(path.dirname(file), {recursive: true, mode: 0o700});
     const temp = file + '.download';
     const result = cp.spawnSync('curl', ['-fsSL', '--connect-timeout', '10', '--max-time', '90', '--retry', '2',
@@ -260,6 +282,7 @@ function argumentsOf(argv) {
   const command = argv.shift() || 'discover'; const args = {};
   while (argv.length) {
     const key = argv.shift();
+    if (['--activate', '--adopt-hierarchy'].includes(key)) { args[key.slice(2)] = true; continue; }
     if (!/^--(config-dir|core|settings-file)$/.test(key) || !argv.length) throw Error('Unknown or missing argument: ' + key);
     args[key.slice(2)] = argv.shift();
   }
@@ -267,15 +290,16 @@ function argumentsOf(argv) {
 }
 async function main(argv) {
   const {command, args} = argumentsOf(argv);
-  const roots = args['config-dir'] ? [args['config-dir']] : discover();
-  if (command === 'discover') return {configDirectories: roots};
-  if (roots.length !== 1) throw Error('Expected one client configuration; use --config-dir. Found: ' + roots.join(', '));
-  const ctx = load(roots[0]);
+  if (command === 'discover') return {configDirectories: discover()};
+  const ctx = load(resolveConfigDir(args['config-dir']));
+  if (command === 'select') return selectClient(ctx.root);
+  if (ctx.client === 'flclash' && ['plan', 'apply', 'rollback'].includes(command)) return flclash.main(command, ctx, args);
+  if (args.activate || args['adopt-hierarchy']) throw Error('Activation/hierarchy options are FlClash-specific');
   const api = controller(ctx);
   if (command === 'verify') return verify(ctx, api);
   if (command === 'apply') return apply(ctx, api, args);
   if (command === 'rollback') return rollback(ctx, api);
-  if (command !== 'plan') throw Error('Commands: discover, plan, apply, verify, rollback');
+  if (command !== 'plan') throw Error('Commands: discover, select, plan, apply, verify, rollback');
   const settings = await settingsFor(ctx, api, args);
   const candidate = engine.apply(clone(ctx.config), settings);
   preserved(ctx.subscription.rules || [], candidate.rules);
@@ -283,5 +307,6 @@ async function main(argv) {
     mode: candidate.mode, managedRules: candidate.rules.filter(engine.managedRule).length,
     automaticProxySelection: true, domesticDirectBeforeSubscription: true, aiHasDirectFallback: false, sources: engine.sources};
 }
+module.exports = {engine, discover, load, render, preserved, argumentsOf, main, controller, verify, writePrivate, rollback,
+  resolveConfigDir, selectClient, bindingPath, downloadRules};
 if (require.main === module) main(process.argv.slice(2)).then(r => console.log(JSON.stringify(r, null, 2))).catch(e => {console.error(e.message); process.exitCode = 1;});
-module.exports = {engine, discover, load, render, preserved, argumentsOf, main, controller, verify, writePrivate, rollback};

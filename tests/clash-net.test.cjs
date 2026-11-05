@@ -10,12 +10,16 @@ test('clash-net forwards recovery, inspection and auto controls literally from a
     const invoke = args => cp.spawnSync('/bin/sh', [source, ...args], {encoding: 'utf8', env: {...process.env, PATH: root + path.delimiter + process.env.PATH}});
     const base = path.dirname(source);
     for (const [args, script, command] of [[[], 'node-recovery.cjs', 'recover'], [['check'], 'node-recovery.cjs', 'check'],
-      [['auto'], 'node-watchdog.cjs', 'status'], [['auto', 'on'], 'node-watchdog.cjs', 'install'], [['auto', 'off'], 'node-watchdog.cjs', 'uninstall']]) {
+      [['auto'], 'node-watchdog.cjs', 'status'], [['auto', 'on'], 'node-watchdog.cjs', 'install'], [['auto', 'off'], 'node-watchdog.cjs', 'uninstall'],
+      [['config', 'discover'], 'clash-router.cjs', 'discover']]) {
       const r = invoke(args); assert.equal(r.status, 0, r.stderr);
       assert.deepEqual(r.stdout.trimEnd().split('\n'), [path.join(base, script), command]);
     }
     const extra = invoke(['auto', 'status', '--config-dir', '/a path/with spaces']);
     assert.equal(extra.status, 0); assert.deepEqual(extra.stdout.trimEnd().split('\n').slice(-3), ['status', '--config-dir', '/a path/with spaces']);
+    const config = invoke(['config', 'apply', '--config-dir', '/another client/path', '--activate']);
+    assert.equal(config.status, 0); assert.deepEqual(config.stdout.trimEnd().split('\n'),
+      [path.join(base, 'clash-router.cjs'), 'apply', '--config-dir', '/another client/path', '--activate']);
     const invalid = invoke(['auto', 'wrong']); assert.equal(invalid.status, 2); assert.match(invalid.stderr, /clash-net auto/);
   } finally { fs.rmSync(root, {recursive: true, force: true}); }
 });

@@ -2,13 +2,13 @@
 
 让国内下载、视频和内网优先直连，ChatGPT、Claude、GitHub 保持代理。使用维护中的域名/IP 分类，无需逐个添加网站。
 
-支持 **Clash Verge / Rev（Mihomo）**，以及 **Shadowrocket 配置生成**。需自备节点订阅；原订阅文件保留，本地分流规则优先执行。
+支持 **Clash Verge / Rev（Mihomo）**、**macOS FlClash**，以及 **Shadowrocket 配置生成**。需自备节点订阅，支持不同厂商；原订阅文件保留，本地分流规则优先执行。
 
 ## 用 AI 助手配置
 
 将下面的话发给 Codex / Claude Code：
 
-> 从 https://github.com/ybwdaisy/clash-smart-routing-skill 安装或更新 skills/clash-smart-routing，按我使用的 Clash Verge 或 Shadowrocket 配置省流分流，保留原订阅与已有设置，并验证结果。
+> 从 https://github.com/ybwdaisy/clash-smart-routing-skill 安装或更新 skills/clash-smart-routing，按我使用的 Clash Verge、FlClash 或 Shadowrocket 配置省流分流，保留原订阅与已有设置，并验证结果。
 
 ## 手动使用
 
@@ -30,9 +30,26 @@ node skills/clash-smart-routing/scripts/clash-router.cjs apply
 node skills/clash-smart-routing/scripts/clash-router.cjs verify
 ```
 
+### FlClash（macOS）
+
+已适配 FlClash 0.9.2。先在客户端导入订阅并完成首次启动，再执行：
+
+```sh
+node skills/clash-smart-routing/scripts/clash-router.cjs plan --config-dir "$HOME/Library/Application Support/com.follow.clash"
+node skills/clash-smart-routing/scripts/clash-router.cjs apply --config-dir "$HOME/Library/Application Support/com.follow.clash" --activate
+node skills/clash-smart-routing/scripts/clash-router.cjs select --config-dir "$HOME/Library/Application Support/com.follow.clash"
+node skills/clash-smart-routing/scripts/clash-router.cjs verify
+```
+
+使用原生脚本覆写，应用时备份并短暂重启 FlClash，开启带随机密钥的本地控制接口。`--activate` 才会开启 FlClash 系统代理；不加则保留原开关。订阅源文件不改，已有脚本继续组合执行。多客户端共存时，`select` 保存后续命令的目标，避免操作到旧客户端。详见 [FlClash 说明](skills/clash-smart-routing/references/flclash.md)。
+
+启动检测会按实际混合端口等待 HTTP、HTTPS、SOCKS 与监听就绪（最多 15 秒），避免把系统代理异步更新误判为失败。需要兼容已有终端 `proxy` 命令时，先核对它的端口；两个客户端使用相同端口时保持互斥运行。
+
+### 节点与后台检测（两个电脑客户端通用）
+
 AI 跟随主界面的节点选择，不单独自动选节点。运行 `node skills/clash-smart-routing/scripts/probe.cjs` 可检查 ChatGPT 实际连通性和请求耗时，检测失败不会切换线路。
 
-Codex 连不上网时，可按需复现“测速 → 排除香港 → 选最快日本/台湾/美国节点 → 验证”的操作：
+Codex 连不上网时，可按需复现“测速 → 排除香港 → 选最快可用节点 → 验证”的操作，其他地区（包括新加坡）均可参与：
 
 ```sh
 node skills/clash-smart-routing/scripts/node-recovery.cjs recover
