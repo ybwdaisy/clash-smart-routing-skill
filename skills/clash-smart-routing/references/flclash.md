@@ -8,7 +8,6 @@
 clash-net config discover
 clash-net config plan --config-dir "$HOME/Library/Application Support/com.follow.clash"
 clash-net config apply --config-dir "$HOME/Library/Application Support/com.follow.clash" --activate
-clash-net config select --config-dir "$HOME/Library/Application Support/com.follow.clash"
 clash-net config verify
 clash-net check
 ```
@@ -19,7 +18,7 @@ FlClash 0.9.2 的控制接口使用原生支持的 `127.0.0.1:9090`，保留已�
 
 控制接口就绪早于 macOS 系统代理设置完成，不能在 API 首次响应时立刻判定接管失败。显式激活后按实际 `mixed-port` 限时等待 HTTP、HTTPS、SOCKS 三项均指向本地端口且监听可连接，再验证公开请求；默认等待上限 15 秒，失败触发回退。原生 `patchClashConfig` 的 `mixed-port` 是持久端口设置，不能把生成的 YAML 当作持久修改入口，也不要假定混合端口总是 7890。若要兼容既有终端 `proxy` 命令，先读取它的真实端口并核对，不猜测 7897/7987；两个客户端统一端口时必须保持互斥运行。
 
-多客户端共存时执行 `select`，保存到 `~/.config/clash-net/client.json`（尊重 `XDG_CONFIG_HOME`）。旧客户端后台服务不会因这个文件自动迁移：先停止旧服务，再为新目录安装。后台任务将目录固定在 LaunchAgent 参数中。
+macOS 多客户端共存时默认自动识别当前唯一运行的 App，通过进程路径和 bundle ID 确定配置目录。`clash-net config active` 可查看；两个都开或都关时暂停，不按端口猜测。旧 `select` 记录不会覆盖自动识别。明确传入 `--config-dir` 时才固定目标。
 
 用户要求从 Verge 试切 FlClash 时，先保存仍可用的 Verge 节点、系统代理和后台绑定，并启动独立于聊天联网的本地回退守护。脚本失败或切换超时就退出 FlClash、恢复 Verge；目标实际连通且绑定核验通过才撤销守护。回退后确认只运行 Verge，公开请求和系统代理均恢复，再考虑后续试验。
 
@@ -32,12 +31,14 @@ FlClash 0.9.2 的控制接口使用原生支持的 `127.0.0.1:9090`，保留已�
 ```sh
 clash-net auto off
 # 若原先启用省流学习，先用旧目录运行 routing-monitor.cjs uninstall。
-node <skill-dir>/scripts/routing-monitor.cjs install --config-dir "$HOME/Library/Application Support/com.follow.clash"
-clash-net auto on --config-dir "$HOME/Library/Application Support/com.follow.clash"
+node <skill-dir>/scripts/routing-monitor.cjs install
+clash-net auto on
 clash-net auto status
 ```
 
 学习监控与自动恢复只在用户已授权对应后台能力时迁移，不因安装客户端自动新增任务。FlClash 的学习文件使用客户端实际生成的受限缓存路径，不写 Verge 的路径。实机测试前正常退出另一个代理客户端，并确认其用户内核退出；随后检查系统代理仍指向测试客户端的实际端口。仅指定 `--config-dir` 无法防止另一个 App 改写系统代理。
+
+上述默认安装会把旧的固定 LaunchAgent 更新为自动跟随。父进程约每 2 秒识别一次；切换时先停止旧子进程并清理其临时学习文件，再运行新子进程。故障冷却、预算和报告仍分别保存在各客户端目录中。不会因为检测到新客户端而自动安装缺失规则或启动它；控制接口、覆写尚未就绪时暂停，配置完成后自行恢复。日志与跟随状态在 `~/.config/clash-net/follow-*.json`，尊重 `XDG_CONFIG_HOME`。
 
 ## 校验与回退
 

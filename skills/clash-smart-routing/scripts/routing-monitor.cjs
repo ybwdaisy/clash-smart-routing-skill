@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 'use strict';
+const follow = require('./client-follow.cjs');
 // Local, bounded learning. No subscription writes, authenticated requests or connection closes.
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const https = require('node:https'), dns = require('node:dns'), net = require('node:net'), cp = require('node:child_process');
@@ -189,6 +190,8 @@ async function cycle(ctx, deps = {}) {
   catch {
     // One repair per incident; user script edits cause the existing installer to refuse safely.
     await clearLearned(ctx, api);
+    if (process.env.CLASH_NET_FOLLOW_ACTIVE === '1')
+      return record(ctx, {at: new Date(now).toISOString(), status: 'paused', reason: 'active-client-overlay-needs-setup', learnedRules: 0});
     if (state.repairAttempted) return record(ctx, {at: new Date(now).toISOString(), status: 'paused', reason: 'overlay-repair-needs-review', learnedRules: 0});
     state.repairAttempted = true; router.writePrivate(stateFile(ctx), JSON.stringify(state));
     if (deps.repair) ctx = await deps.repair(ctx);
@@ -269,7 +272,7 @@ const xml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(
 function launchPlist(node, script, root) {
   return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n' +
     '<plist version="1.0"><dict><key>Label</key><string>' + LABEL + '</string><key>ProgramArguments</key><array>' +
-    [node, script, 'watch', '--config-dir', root].map(s => '<string>' + xml(s) + '</string>').join('') +
+    [node, script, 'watch', ...(root ? ['--config-dir', root] : [])].map(s => '<string>' + xml(s) + '</string>').join('') +
     '</array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>30</integer>' +
     '<key>ProcessType</key><string>Background</string><key>EnvironmentVariables</key><dict><key>PATH</key>' +
     '<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict></dict></plist>\n';
@@ -278,7 +281,7 @@ function plistPath() { return path.join(os.homedir(), 'Library/LaunchAgents', LA
 function serviceRunning() {
   return process.platform === 'darwin' && cp.spawnSync('/bin/launchctl', ['print', 'gui/' + process.getuid() + '/' + LABEL], {encoding: 'utf8'}).status === 0;
 }
-async function install(ctx) {
+async function install(ctx, automatic = false) {
   if (process.platform !== 'darwin') throw Error('Automatic background installation currently supports macOS; use watch in your service manager elsewhere');
   const file = plistPath();
   if (fs.existsSync(file)) {
@@ -292,13 +295,16 @@ async function install(ctx) {
     if (stopped.status !== 0) throw Error('Cannot stop the existing monitor');
   }
   await waitStopped(ctx);
-  const settings = path.join(ctx.stateDir, 'enable-monitor.json'); router.writePrivate(settings, '{"monitorEnabled":true}\n');
-  await router.main(['apply', '--config-dir', ctx.root, '--settings-file', settings]);
+  const current = path.join(ctx.stateDir, 'settings.json');
+  if (!fs.existsSync(current) || !JSON.parse(fs.readFileSync(current, 'utf8')).monitorEnabled || !ctx.config['rule-providers']?.[NAME]) {
+    const settings = path.join(ctx.stateDir, 'enable-monitor.json'); router.writePrivate(settings, '{"monitorEnabled":true}\n');
+    await router.main(['apply', '--config-dir', ctx.root, '--settings-file', settings]);
+  }
   const stableNode = ['/opt/homebrew/bin/node', '/usr/local/bin/node'].find(p => fs.existsSync(p) && fs.realpathSync(p) === fs.realpathSync(process.execPath)) || process.execPath;
-  router.writePrivate(file, launchPlist(stableNode, fs.realpathSync(__filename), ctx.root));
+  router.writePrivate(file, launchPlist(stableNode, fs.realpathSync(__filename), automatic ? null : ctx.root));
   const result = cp.spawnSync('/bin/launchctl', ['bootstrap', 'gui/' + process.getuid(), file], {encoding: 'utf8'});
   if (result.status !== 0) throw Error('LaunchAgent failed to start; base overlay is installed. Run watch manually or inspect launchctl');
-  return {installed: true, running: serviceRunning(), intervalSeconds: DEFAULTS.interval / 1000, dailyProbeLimit: DEFAULTS.dailyProbes,
+  return {installed: true, mode: automatic ? 'automatic' : 'fixed', running: serviceRunning(), intervalSeconds: DEFAULTS.interval / 1000, dailyProbeLimit: DEFAULTS.dailyProbes,
     leaseMinutes: DEFAULTS.lease / MINUTE, report: path.join(ctx.stateDir, 'monitor-report.json')};
 }
 async function waitStopped(ctx) {
@@ -346,8 +352,41 @@ async function watch(root) {
     release(); process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop);
   }
 }
+async function clearOnLeave(root) {
+  const ctx = router.load(root);
+  if (!ctx.config['rule-providers']?.[NAME]) return;
+  const file = learnedFile(ctx);
+  router.writePrivate(file, 'payload: []\n');
+  const prior = readState(ctx); prior.entries = {}; router.writePrivate(stateFile(ctx), JSON.stringify(prior));
+  try {
+    const api = router.controller(ctx, {followActive: false, timeoutMs: 1000});
+    if ((await api('GET', '/providers/rules')).providers?.[NAME]) await api('PUT', '/providers/rules/' + encodeURIComponent(NAME));
+  } catch { /* Closed clients reload the neutralized file next time they start. */ }
+}
 async function main(argv) {
   const command = argv.shift() || 'status'; let root;
+  const automatic = !argv.length;
+  if (command === 'watch' && automatic) return follow.run({service: 'monitor', script: fs.realpathSync(__filename), router, cleanup: clearOnLeave});
+  if (command === 'uninstall' && automatic) {
+    const file = plistPath();
+    if (fs.existsSync(file) && !fs.readFileSync(file, 'utf8').includes('routing-monitor.cjs')) throw Error('LaunchAgent name collision');
+    if (serviceRunning()) {
+      const stopped = cp.spawnSync('/bin/launchctl', ['bootout', 'gui/' + process.getuid() + '/' + LABEL], {encoding: 'utf8', timeout: 50000});
+      if (stopped.status !== 0) throw Error('Cannot stop the existing monitor');
+    }
+    for (const candidate of router.discover()) await clearOnLeave(candidate);
+    if (fs.existsSync(file)) fs.rmSync(file);
+    return {uninstalled: true, learnedRules: 0, baseRoutingPreserved: true};
+  }
+  if (command === 'status' && automatic) {
+    const active = router.activeSelection(), follower = follow.status('monitor');
+    if (active.status !== 'active') return {backgroundServiceLoaded: serviceRunning(), mode: 'automatic', active, follower, report: null};
+    root = active.root;
+    const file = path.join(router.load(root).stateDir, 'monitor-report.json');
+    const report = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+    return {backgroundServiceLoaded: serviceRunning(), mode: 'automatic', active, follower, report,
+      reportAgeSeconds: report ? Math.round((Date.now() - Date.parse(report.at)) / 1000) : null};
+  }
   if (argv.length) {
     if (argv.length !== 2 || argv[0] !== '--config-dir') throw Error('Usage: routing-monitor.cjs install|status|once|watch|uninstall [--config-dir path]');
     root = argv[1];
@@ -357,7 +396,7 @@ async function main(argv) {
     const file = path.join(ctx.stateDir, 'monitor-report.json'), report = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
     return {backgroundServiceLoaded: serviceRunning(), report, reportAgeSeconds: report ? Math.round((Date.now() - Date.parse(report.at)) / 1000) : null};
   }
-  if (command === 'install') return install(ctx);
+  if (command === 'install') return install(ctx, automatic);
   if (command === 'uninstall') return uninstall(ctx);
   const settings = path.join(ctx.stateDir, 'settings.json');
   if (!fs.existsSync(settings) || !JSON.parse(fs.readFileSync(settings, 'utf8')).monitorEnabled)
@@ -368,4 +407,4 @@ async function main(argv) {
 }
 if (require.main === module) main(process.argv.slice(2)).then(r => { if (r) console.log(JSON.stringify(r, null, 2)); }).catch(e => { console.error(e.message); process.exitCode = 1; });
 module.exports = {DEFAULTS, publicIP, hostname, protectedTarget, matches, rejectRisk, resultFor, payloadFor, directProbe, resolveIP,
-  emptyState, publish, cycle, lock, launchPlist, main};
+  emptyState, publish, cycle, lock, launchPlist, main, clearOnLeave};

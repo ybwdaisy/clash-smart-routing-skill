@@ -215,7 +215,8 @@ function argsOf(argv) {
 }
 async function main(argv) {
   const {command, opts} = argsOf(argv);
-  const ctx = router.load(router.resolveConfigDir(opts['--config-dir'])), api = router.controller(ctx), latest = path.join(ctx.stateDir, 'node-recovery-latest.json');
+  const ctx = router.load(router.resolveConfigDir(opts['--config-dir'])), api = router.controller(ctx,
+    {followActive: !opts['--config-dir'] || process.env.CLASH_NET_FOLLOW_ACTIVE === '1'}), latest = path.join(ctx.stateDir, 'node-recovery-latest.json');
   if (command === 'status') return readJSON(latest);
   fs.mkdirSync(ctx.stateDir, {recursive: true, mode: 0o700});
   const lock = path.join(ctx.stateDir, 'node-recovery.lock'), undoFile = path.join(ctx.stateDir, 'node-recovery-undo.json');

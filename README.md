@@ -37,15 +37,18 @@ node skills/clash-smart-routing/scripts/clash-router.cjs verify
 ```sh
 node skills/clash-smart-routing/scripts/clash-router.cjs plan --config-dir "$HOME/Library/Application Support/com.follow.clash"
 node skills/clash-smart-routing/scripts/clash-router.cjs apply --config-dir "$HOME/Library/Application Support/com.follow.clash" --activate
-node skills/clash-smart-routing/scripts/clash-router.cjs select --config-dir "$HOME/Library/Application Support/com.follow.clash"
 node skills/clash-smart-routing/scripts/clash-router.cjs verify
 ```
 
-使用原生脚本覆写，应用时备份并短暂重启 FlClash，开启带随机密钥的本地控制接口。`--activate` 才会开启 FlClash 系统代理；不加则保留原开关。订阅源文件不改，已有脚本继续组合执行。多客户端共存时，`select` 保存后续命令的目标，避免操作到旧客户端。详见 [FlClash 说明](skills/clash-smart-routing/references/flclash.md)。
+使用原生脚本覆写，应用时备份并短暂重启 FlClash，开启带随机密钥的本地控制接口。`--activate` 才会开启 FlClash 系统代理；不加则保留原开关。订阅源文件不改，已有脚本继续组合执行。详见 [FlClash 说明](skills/clash-smart-routing/references/flclash.md)。
 
 启动检测会按实际混合端口等待 HTTP、HTTPS、SOCKS 与监听就绪（最多 15 秒），避免把系统代理异步更新误判为失败。需要兼容已有终端 `proxy` 命令时，先核对它的端口；两个客户端使用相同端口时保持互斥运行。
 
 ### 节点与后台检测（两个电脑客户端通用）
+
+macOS 下，`clash-net` 和后台服务会自动跟随当前运行的客户端，无需重新绑定。先彻底退出当前 App，再打开另一个并开启系统代理；后台约每 2 秒检查一次，旧检测退出后接上新客户端。两个同时开或都没开时暂停，不猜测、不替你开关 App。两个客户端需要事先完成规则配置；首次升级后重新运行一次 `clash-net auto on` 和 `routing-monitor.cjs install`，将旧的固定启动项升级为自动跟随。
+
+`clash-net config active` 查看当前识别结果。明确指定 `--config-dir` 仍可用于手动诊断；macOS 自动模式不受旧 `select` 记录影响，其他平台继续使用显式或已保存的目录。
 
 AI 跟随主界面的节点选择，不单独自动选节点。运行 `node skills/clash-smart-routing/scripts/probe.cjs` 可检查 ChatGPT 实际连通性和请求耗时，检测失败不会切换线路。
 

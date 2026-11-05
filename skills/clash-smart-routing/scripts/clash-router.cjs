@@ -9,6 +9,7 @@ const cp = require('node:child_process');
 const vm = require('node:vm');
 const YAML = require('yaml');
 const flclash = require('./flclash-client.cjs');
+const activeClient = require('./active-client.cjs');
 const asset = fs.readFileSync(path.join(__dirname, '../assets/router.js'), 'utf8');
 const engine = vm.runInNewContext(asset + '\nSmartRouting;', Object.create(null), {timeout: 1000});
 const hash = b => crypto.createHash('sha256').update(b).digest('hex');
@@ -60,9 +61,15 @@ function selectClient(root) {
   writePrivate(bindingPath(), JSON.stringify({version: 1, client: ctx.client, configDirectory: ctx.root}, null, 2) + '\n');
   return {client: ctx.client, configDirectory: ctx.root};
 }
-function resolveConfigDir(explicit) {
+function activeSelection(deps = {}) { return activeClient.detect(deps.roots || discover(), deps); }
+function assertActive(root) {
+  const selected = activeClient.requireRoot(activeSelection());
+  if (selected !== root) { const e = Error('Active client changed; previous client will not be modified'); e.code = 'active-client-changed'; throw e; }
+}
+function resolveConfigDir(explicit, deps = {}) {
   if (explicit) return fs.realpathSync(explicit);
   const roots = discover();
+  if ((deps.platform || process.platform) === 'darwin') return activeClient.requireRoot(activeSelection({...deps, roots}));
   if (fs.existsSync(bindingPath())) {
     const selected = JSON.parse(fs.readFileSync(bindingPath(), 'utf8'));
     if (selected.version !== 1 || !roots.includes(selected.configDirectory)) throw Error('Selected client is unavailable; choose a client explicitly');
@@ -71,7 +78,7 @@ function resolveConfigDir(explicit) {
   if (roots.length !== 1) throw Error('Multiple/no supported clients; use --config-dir or select the intended client');
   return roots[0];
 }
-function controller(ctx) {
+function controller(ctx, options = {}) {
   const base = fs.existsSync(path.join(ctx.root, 'config.yaml')) ? read(path.join(ctx.root, 'config.yaml')) : {};
   const socket = ctx.config['external-controller-unix'] ?? base['external-controller-unix'];
   const useSocket = socket && path.isAbsolute(socket) && fs.existsSync(socket) && fs.statSync(socket).isSocket();
@@ -81,10 +88,11 @@ function controller(ctx) {
   const normalized = useSocket ? null : address.replace(/^0\.0\.0\.0:/, '127.0.0.1:').replace(/^\[::\]:/, '[::1]:');
   const secret = ctx.config.secret ?? base.secret ?? '';
   return (method, route, data) => new Promise((resolve, reject) => {
+    if (options.followActive ?? process.env.CLASH_NET_FOLLOW_ACTIVE === '1') (options.activeCheck || assertActive)(ctx.root);
     const body = data === undefined ? undefined : JSON.stringify(data);
     const target = useSocket ? {socketPath: socket, path: route} : {hostname: new URL('http://' + normalized).hostname.replace(/^\[|\]$/g, ''), port: new URL('http://' + normalized).port, path: route};
     const req = http.request({...target,
-      method, timeout: 15000, headers: {...(secret ? {Authorization: 'Bearer ' + secret} : {}),
+      method, timeout: options.timeoutMs || 15000, headers: {...(secret ? {Authorization: 'Bearer ' + secret} : {}),
         ...(body ? {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body)} : {})}
     }, res => {
       let result = ''; res.on('data', b => {result += b;});
@@ -291,15 +299,16 @@ function argumentsOf(argv) {
 async function main(argv) {
   const {command, args} = argumentsOf(argv);
   if (command === 'discover') return {configDirectories: discover()};
+  if (command === 'active') return {mode: 'automatic', ...activeSelection()};
   const ctx = load(resolveConfigDir(args['config-dir']));
   if (command === 'select') return selectClient(ctx.root);
   if (ctx.client === 'flclash' && ['plan', 'apply', 'rollback'].includes(command)) return flclash.main(command, ctx, args);
   if (args.activate || args['adopt-hierarchy']) throw Error('Activation/hierarchy options are FlClash-specific');
-  const api = controller(ctx);
+  const api = controller(ctx, {followActive: !args['config-dir'] || process.env.CLASH_NET_FOLLOW_ACTIVE === '1'});
   if (command === 'verify') return verify(ctx, api);
   if (command === 'apply') return apply(ctx, api, args);
   if (command === 'rollback') return rollback(ctx, api);
-  if (command !== 'plan') throw Error('Commands: discover, select, plan, apply, verify, rollback');
+  if (command !== 'plan') throw Error('Commands: discover, active, select, plan, apply, verify, rollback');
   const settings = await settingsFor(ctx, api, args);
   const candidate = engine.apply(clone(ctx.config), settings);
   preserved(ctx.subscription.rules || [], candidate.rules);
@@ -308,5 +317,5 @@ async function main(argv) {
     automaticProxySelection: true, domesticDirectBeforeSubscription: true, aiHasDirectFallback: false, sources: engine.sources};
 }
 module.exports = {engine, discover, load, render, preserved, argumentsOf, main, controller, verify, writePrivate, rollback,
-  resolveConfigDir, selectClient, bindingPath, downloadRules};
+  resolveConfigDir, selectClient, bindingPath, downloadRules, activeSelection, assertActive};
 if (require.main === module) main(process.argv.slice(2)).then(r => console.log(JSON.stringify(r, null, 2))).catch(e => {console.error(e.message); process.exitCode = 1;});

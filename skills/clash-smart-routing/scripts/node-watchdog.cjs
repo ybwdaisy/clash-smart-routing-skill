@@ -3,6 +3,7 @@
 // Local offline-capable recovery worker. Does not call an AI model or read auth.json.
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), cp = require('node:child_process');
 const router = require('./clash-router.cjs'), recovery = require('./node-recovery.cjs');
+const follow = require('./client-follow.cjs');
 const LABEL = 'io.github.clash-smart-routing.node-watchdog';
 const MINUTE = 60000;
 const DEFAULTS = Object.freeze({interval: MINUTE, failures: 2, logWindow: 90 * 1000,
@@ -145,7 +146,7 @@ const xml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(
 function launchPlist(node, script, root) {
   return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n' +
     '<plist version="1.0"><dict><key>Label</key><string>' + LABEL + '</string><key>ProgramArguments</key><array>' +
-    [node, script, 'watch', '--config-dir', root].map(s => '<string>' + xml(s) + '</string>').join('') +
+    [node, script, 'watch', ...(root ? ['--config-dir', root] : [])].map(s => '<string>' + xml(s) + '</string>').join('') +
     '</array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>30</integer>' +
     '<key>ExitTimeOut</key><integer>45</integer><key>ProcessType</key><string>Background</string>' +
     '<key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict></dict></plist>\n';
@@ -192,8 +193,22 @@ async function main(argv) {
   const command = argv[0] || 'status';
   if (!['install', 'uninstall', 'status', 'watch', 'once'].includes(command)) throw Error('Commands: install, uninstall, status, watch, once');
   if (argv.length !== 1 && argv.length !== 0 && (argv.length !== 3 || argv[1] !== '--config-dir')) throw Error('Use --config-dir with an explicit path');
-  const root = router.resolveConfigDir(argv[1] ? argv[2] : undefined), ctx = router.load(root), file = plistPath();
-  if (command === 'status') return {...serviceStatus(), reportFile: reportFile(ctx),
+  const explicit = argv[1] ? argv[2] : undefined, automatic = !explicit, file = plistPath();
+  if (command === 'watch' && automatic) return follow.run({service: 'node-watchdog', script: fs.realpathSync(__filename), router});
+  if (command === 'status' && automatic) {
+    const active = router.activeSelection(), follower = follow.status('node-watchdog');
+    if (active.status !== 'active') return {...serviceStatus(), mode: 'automatic', active, follower, report: null};
+    const ctx = router.load(active.root);
+    return {...serviceStatus(), mode: 'automatic', active, follower, reportFile: reportFile(ctx),
+      report: fs.existsSync(reportFile(ctx)) ? read(reportFile(ctx)) : null, lastAttempt: readState(ctx).lastAttempt};
+  }
+  if (process.platform === 'darwin' && command === 'uninstall') {
+    if (fs.existsSync(file) && !fs.readFileSync(file, 'utf8').includes('node-watchdog.cjs')) throw Error('LaunchAgent name collision');
+    await stopService(); if (fs.existsSync(file)) fs.unlinkSync(file);
+    return {uninstalled: true, ...serviceStatus(), currentNodePreserved: true};
+  }
+  const root = router.resolveConfigDir(explicit), ctx = router.load(root);
+  if (command === 'status') return {...serviceStatus(), mode: 'fixed', reportFile: reportFile(ctx),
     report: fs.existsSync(reportFile(ctx)) ? read(reportFile(ctx)) : null, lastAttempt: readState(ctx).lastAttempt};
   if (command === 'watch') return watch(root);
   if (command === 'once') { const release = lock(ctx); try { return (await once(root)).report; } finally { release(); } }
@@ -202,27 +217,27 @@ async function main(argv) {
     throw Error('LaunchAgent name collision');
   if (command === 'install') {
     await router.verify(ctx, router.controller(ctx));
+    const stableNode = ['/opt/homebrew/bin/node', '/usr/local/bin/node'].find(p => fs.existsSync(p) && fs.realpathSync(p) === fs.realpathSync(process.execPath)) || process.execPath;
+    const expected = launchPlist(stableNode, fs.realpathSync(__filename), automatic ? null : ctx.root);
     const service = serviceStatus();
     if (service.loaded) {
       const previous = fs.readFileSync(file, 'utf8');
-      if (!previous.includes('<string>' + xml(ctx.root) + '</string>'))
-        throw Error('Watchdog is bound to another client; stop that service before installing for this client');
-      return {...service, alreadyInstalled: true, reportFile: reportFile(ctx)};
+      if (previous === expected) return {...service, mode: automatic ? 'automatic' : 'fixed', alreadyInstalled: true, reportFile: reportFile(ctx)};
+      await stopService();
     }
-    const stableNode = ['/opt/homebrew/bin/node', '/usr/local/bin/node'].find(p => fs.existsSync(p) && fs.realpathSync(p) === fs.realpathSync(process.execPath)) || process.execPath;
-    router.writePrivate(file, launchPlist(stableNode, fs.realpathSync(__filename), ctx.root));
+    router.writePrivate(file, expected);
     const started = cp.spawnSync('/bin/launchctl', ['bootstrap', 'gui/' + process.getuid(), file], {encoding: 'utf8', timeout: 10000});
     if (started.status !== 0) throw Error('LaunchAgent bootstrap failed; inspect the saved plist');
-    return {installed: true, ...serviceStatus(), intervalSeconds: DEFAULTS.interval / 1000, reportFile: reportFile(ctx)};
+    return {installed: true, mode: automatic ? 'automatic' : 'fixed', ...serviceStatus(), intervalSeconds: DEFAULTS.interval / 1000, reportFile: reportFile(ctx)};
   }
+}
+async function stopService() {
   if (serviceStatus().loaded) {
     const stopped = cp.spawnSync('/bin/launchctl', ['bootout', serviceTarget()], {encoding: 'utf8', timeout: 50000});
     if (stopped.status !== 0) throw Error('Watchdog could not be stopped; plist retained');
     for (let i = 0; i < 90 && serviceStatus().loaded; i++) await new Promise(yes => setTimeout(yes, 500));
     if (serviceStatus().loaded) throw Error('Watchdog is still stopping; plist retained until exit is confirmed');
   }
-  if (fs.existsSync(file)) fs.unlinkSync(file);
-  return {uninstalled: true, ...serviceStatus(), currentNodePreserved: true};
 }
 if (require.main === module) main(process.argv.slice(2)).then(r => { if (r) console.log(JSON.stringify(r, null, 2)); })
   .catch(e => { console.error(e.message); process.exitCode = 1; });

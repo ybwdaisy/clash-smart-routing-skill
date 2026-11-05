@@ -21,7 +21,7 @@ node <skill-dir>/scripts/node-recovery.cjs status
 node <skill-dir>/scripts/node-recovery.cjs rollback
 ```
 
-多客户端时加 `--config-dir <实际目录>`，或先用 `clash-net config select --config-dir <实际目录>` 保存目标；自动选择组不能唯一确定时加 `--latency-group <现有组名>`。不猜客户端、组名或测速地址。
+macOS 默认自动跟随唯一运行的客户端，双开或全关时暂停；`clash-net config active` 查看识别结果。手动诊断可加 `--config-dir <实际目录>`，其他平台仍支持保存目录；自动选择组不能唯一确定时加 `--latency-group <现有组名>`。不猜客户端、组名或测速地址。
 
 ## 执行约定
 
@@ -47,7 +47,7 @@ node <skill-dir>/scripts/node-watchdog.cjs status
 node <skill-dir>/scripts/node-watchdog.cjs uninstall
 ```
 
-安装 `~/Library/LaunchAgents/io.github.clash-smart-routing.node-watchdog.plist`，登录后自动运行。它独立于 Codex 的联网推理和定时任务，不调用模型，也不依赖 Codex 先恢复联网；与国内直连学习服务分别管理。需保持本技能及 Node 路径稳定，安装时记录绝对路径。
+安装 `~/Library/LaunchAgents/io.github.clash-smart-routing.node-watchdog.plist`，登录后自动运行。默认启动项不固定配置目录，常驻父进程每 2 秒识别运行中的客户端并切换子进程；实质联网检查仍为每 60 秒一次。旧版固定启动项可重新执行不带 `--config-dir` 的 install 升级。它独立于 Codex 的联网推理和定时任务，不调用模型，也不依赖 Codex 先恢复联网；与国内直连学习服务分别管理。需保持本技能及 Node 路径稳定，安装时记录绝对路径。
 
 - 每 60 秒检查一次，仅在 Codex／ChatGPT 桌面进程运行、Clash 控制接口可用、处于 Rule 模式且主组指向自动组并能解析到真实节点时探测。应用关闭、Clash 关闭、主组另选节点/其他组、手动 DIRECT、其他模式或手动恢复任务占用时暂停；不自动开关应用或代理。
 - 常规检测只发小型 HTTPS HEAD 请求，不下载正文。连续两次传输失败才调用一次原 `recover`。HTTP 401/403/429/5xx 等服务响应本身不会触发换节点；本地 curl／代理端口不可用或链路证据缺失时暂停处理，不把它们当作节点故障。

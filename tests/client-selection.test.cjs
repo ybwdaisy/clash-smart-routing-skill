@@ -16,11 +16,15 @@ test('saved client selection resolves multiple clients and refuses a missing tar
       return fs.realpathSync(root);
     });
     assert.ok(router.discover().includes(roots[0])); assert.ok(router.discover().includes(roots[1]));
-    router.selectClient(roots[1]); assert.equal(router.resolveConfigDir(), roots[1]);
+    router.selectClient(roots[1]); assert.equal(router.resolveConfigDir(undefined, {platform: 'linux'}), roots[1]);
+    const live = {platform: 'darwin', processes:'7 /Applications/Clash Verge.app/Contents/MacOS/clash-verge', bundleId:()=>path.basename(roots[0])};
+    assert.equal(router.resolveConfigDir(undefined, live), roots[0]);
+    assert.throws(()=>router.resolveConfigDir(undefined,{...live,processes:''}),/No supported proxy client/);
+    assert.throws(()=>router.resolveConfigDir(undefined,{...live,processes:live.processes+'\n8 /Applications/FlClash.app/Contents/MacOS/FlClash'}),/Multiple proxy clients/);
     assert.equal(router.resolveConfigDir(roots[0]), roots[0]);
     assert.equal(fs.statSync(router.bindingPath()).mode & 0o777, 0o600);
     fs.rmSync(roots[1], {recursive: true});
-    assert.throws(() => router.resolveConfigDir(), /Selected client is unavailable/);
+    assert.throws(() => router.resolveConfigDir(undefined, {platform: 'linux'}), /Selected client is unavailable/);
   } finally {
     for (const [name, value] of [['XDG_DATA_HOME', old.data], ['XDG_CONFIG_HOME', old.config]]) {
       if (value === undefined) delete process.env[name]; else process.env[name] = value;
