@@ -9,14 +9,15 @@ function inspect(file){return fs.existsSync(file)?{exists:true,hash:hash(fs.read
 function include(dir,file){const j=read(dir);active(j);if(j.entries.some(e=>e.file===file))return;const original=inspect(file),backup=path.join(dir,'file-'+j.entries.length);if(original.exists)r.writePrivate(backup,fs.readFileSync(file));j.entries.push({file,backup,original,expected:original});save(dir,j);}
 function loaded(label){return cp.spawnSync('/bin/launchctl',['print','gui/'+process.getuid()+'/'+label],{encoding:'utf8',timeout:3000}).status===0;}
 const xml=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-async function begin(files,{timeoutMs=180000}={}){
+async function begin(files,{timeoutMs=180000,extraAgents=[]}={}){
  const dir=c.file('backups/'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+crypto.randomBytes(3).toString('hex'));
  fs.mkdirSync(dir,{recursive:true,mode:0o700});
  const entries=[];for(const file of [...new Set(files)]){const original=inspect(file),backup=path.join(dir,'file-'+entries.length);if(original.exists)r.writePrivate(backup,fs.readFileSync(file));entries.push({file,backup,original,expected:original});}
- const agents=[...manager.legacy,manager.LABEL].map(label=>({label,loaded:loaded(label),file:path.join(os.homedir(),'Library/LaunchAgents',label+'.plist')}));
- const fallback=r.discover().find(root=>path.basename(root)!=='com.follow.clash')||r.resolveConfigDir();
+ const agents=[...new Map([...manager.legacy,manager.LABEL].map(label=>({label,file:path.join(os.homedir(),'Library/LaunchAgents',label+'.plist')})).concat(extraAgents).map(a=>[a.label,{...a,loaded:loaded(a.label)}])).values()];
+ const selected=r.activeSelection(),fallback=selected.status==='active'&&selected.client==='verge'?selected.root:r.discover().find(root=>path.basename(root)!=='com.follow.clash')||r.resolveConfigDir();
+ const fallbackApp=selected.status==='active'&&selected.root===fallback?selected.app:null;
  const started=cp.spawnSync('/bin/ps',['-p',String(process.pid),'-o','lstart='],{encoding:'utf8'}).stdout.trim();
- const journal={version:1,phase:'armed',deadline:Date.now()+timeoutMs,workerPid:process.pid,workerStarted:started,entries,agents,fallback,launchd:Object.fromEntries(c.KEYS.map(k=>[k,c.launchctl('getenv',k)])),label:'io.github.clash-smart-routing.proxy-guard-'+path.basename(dir)};
+ const journal={version:1,phase:'armed',deadline:Date.now()+timeoutMs,workerPid:process.pid,workerStarted:started,entries,agents,fallback,fallbackApp,environmentOwner:c.read('environment-owner.json'),launchd:Object.fromEntries(c.KEYS.map(k=>[k,c.launchctl('getenv',k)])),label:'io.github.clash-smart-routing.proxy-guard-'+path.basename(dir)};
  save(dir,journal);
  const plist=path.join(os.homedir(),'Library/LaunchAgents',journal.label+'.plist');
  const args=[process.execPath,fs.realpathSync(__filename),'guard',dir].map(x=>'<string>'+xml(x)+'</string>').join('');
@@ -35,15 +36,15 @@ function commit(dir){stage(dir,'committed');retire(dir);}
 function fail(dir,message){const j=read(dir);save(dir,{...j,phase:'failed',failure:message});}
 async function restoreFiles(dir){const j=read(dir),conflicts=[];for(const e of [...j.entries].reverse()){
  const actual=inspect(e.file);if(actual.exists===e.original.exists&&actual.hash===e.original.hash)continue;
- if(actual.exists!==e.expected.exists||actual.hash!==e.expected.hash){conflicts.push(e.file);continue;}
+ if(!e.nativeGenerated&&(actual.exists!==e.expected.exists||actual.hash!==e.expected.hash)){conflicts.push(e.file);continue;}
  if(e.original.exists){r.writePrivate(e.file,fs.readFileSync(e.backup));fs.chmodSync(e.file,e.original.mode||0o600)}else fs.rmSync(e.file,{force:true});
  }return conflicts;
 }
-async function restoreVerge(root){
+async function restoreVerge(root,app){
  const isFl=path.basename(root)==='com.follow.clash';
  const fl=require('./flclash-client.cjs');if(!isFl)try{await fl.quit()}catch{const p=cp.spawnSync('/bin/ps',['-axo','pid=,comm='],{encoding:'utf8'});for(const line of p.stdout.split('\n')){const m=line.trim().match(/^(\d+)\s+(.*)$/);if(m&&m[2].startsWith('/Applications/FlClash.app/Contents/MacOS/'))try{process.kill(Number(m[1]),'SIGTERM')}catch{}}}
  if(isFl)cp.spawnSync('/usr/bin/osascript',['-e','tell application "Clash Verge" to quit'],{encoding:'utf8',timeout:8000});
- cp.spawnSync('/usr/bin/open',['-a',isFl?'/Applications/FlClash.app':'/Applications/Clash Verge.app'],{encoding:'utf8',timeout:5000});
+ cp.spawnSync('/usr/bin/open',['-a',app||(isFl?'/Applications/FlClash.app':'/Applications/Clash Verge.app')],{encoding:'utf8',timeout:5000});
  let ctx;for(let i=0;i<60;i++){try{ctx=r.load(root);await r.controller(ctx,{followActive:false,timeoutMs:1000})('GET','/configs');break}catch{ctx=null;await pause(500)}}
  if(!ctx)throw Error('Verge controller did not restart');
  // The client normally restores its own system proxy. Only repair matching loopback endpoints if necessary.
@@ -63,11 +64,12 @@ async function rollback(dir){
  const claim=path.join(dir,'rollback-claimed');try{fs.writeFileSync(claim,'1',{flag:'wx',mode:0o600})}catch(e){if(e.code==='EEXIST')return;throw e}
  let j=read(dir);save(dir,{...j,phase:'rolling-back'});
  if(j.workerPid&&j.workerPid!==process.pid){const start=cp.spawnSync('/bin/ps',['-p',String(j.workerPid),'-o','lstart='],{encoding:'utf8'}).stdout.trim();if(start&&start===j.workerStarted)try{process.kill(j.workerPid,'SIGTERM')}catch{}}
- try{manager.stop()}catch{}for(const label of manager.legacy)try{manager.stop(label)}catch{}
- const owner=c.read('environment-owner.json');for(const k of c.KEYS){const value=c.launchctl('getenv',k);if(!owner||value===owner.last[k]){c.launchctl(j.launchd[k]===null?'unsetenv':'setenv',k,j.launchd[k]===null?undefined:j.launchd[k]);if(owner)owner.last[k]=j.launchd[k];}}if(owner)c.write('environment-owner.json',owner);
+ try{manager.stop()}catch{}for(const a of j.agents)try{manager.stop(a.label)}catch{}
+ if(j.fresh){try{const selected=r.activeSelection();if(selected.status==='active'&&selected.root===j.fresh.root)await require('./proxy-system.cjs').quit(selected)}catch{}}
+ const owner=c.read('environment-owner.json');for(const k of c.KEYS){const value=c.launchctl('getenv',k);if(!owner||value===owner.last[k]){c.launchctl(j.launchd[k]===null?'unsetenv':'setenv',k,j.launchd[k]===null?undefined:j.launchd[k]);if(owner)owner.last[k]=j.launchd[k];}}if(owner)c.write('environment-owner.json',{...(j.environmentOwner||{baseline:j.launchd}),last:owner.last});
  const conflicts=await restoreFiles(dir);let fallback,error;
  if(j.nativePreferences){try{const fl=require('./flclash-client.cjs');await fl.quit();const n=j.nativePreferences;const prefs=fl.preferences(n.root);for(const x of n.changes){if(String(prefs[x.section][x.key])===String(x.after))prefs[x.section][x.key]=x.before;else conflicts.push('FlClash native preference '+x.section+'.'+x.key)}fl.writePreferences(prefs)}catch{conflicts.push('FlClash native preferences')}}
- try{fallback=await restoreVerge(j.fallback)}catch(e){error=e.message}
+ try{fallback=await restoreVerge(j.fallback,j.fallbackApp)}catch(e){error=e.message}
  for(const a of j.agents)if(a.loaded&&fs.existsSync(a.file)&&!loaded(a.label))cp.spawnSync('/bin/launchctl',['bootstrap','gui/'+process.getuid(),a.file],{encoding:'utf8',timeout:10000});
  j=read(dir);save(dir,{...j,phase:'rolled-back',conflicts,fallback,error,finishedAt:new Date().toISOString()});
 }

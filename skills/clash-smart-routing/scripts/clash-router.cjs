@@ -211,7 +211,7 @@ async function verify(ctx, api, settings) {
   return {mode: live.mode, managedRules: managed.length, domesticDirectBeforeSubscription: true, aiFollowsMainSelection: true, aiUpstream: upstream, aiSelectedNode: selected, aiGroupHasSelectedProxy: true, aiHealthCheckURL: proxy.testUrl, ruleProviders: counts,
     ...(settings.monitorEnabled ? {learnedRules: providers.providers[engine.prefix + 'learned'].ruleCount} : {})};
 }
-async function apply(ctx, api, args) {
+async function apply(ctx, api, args, io = {write: writePrivate}) {
   await api('GET', '/version'); // Prove the actual controller is reachable before any writes.
   const subscriptionHash = hash(fs.readFileSync(ctx.subscriptionFile));
   const settingsPath = path.join(ctx.stateDir, 'settings.json');
@@ -225,39 +225,39 @@ async function apply(ctx, api, args) {
   const previous = oldState ? fs.readFileSync(oldState.originalScript, 'utf8') : currentScript;
   const candidate = engine.apply(clone(ctx.config), settings);
   const learnedFile = path.join(ctx.stateDir, 'learned.yaml');
-  if (settings.monitorEnabled && !fs.existsSync(learnedFile)) writePrivate(learnedFile, 'payload: []\n');
+  if (settings.monitorEnabled && !fs.existsSync(learnedFile)) io.write(learnedFile, 'payload: []\n');
   preserved((ctx.config.rules || []).filter(r => !engine.managedRule(r)), candidate.rules);
   preserved(ctx.subscription.rules || [], candidate.rules);
   const downloadedBytes = downloadRules(ctx, candidate);
   const candidatePath = path.join(ctx.stateDir, 'candidate.json');
-  writePrivate(candidatePath, JSON.stringify(candidate));
+  io.write(candidatePath, JSON.stringify(candidate));
   const core = coreBinary(args.core);
   const checked = cp.spawnSync(core, ['-t', '-d', ctx.root, '-f', candidatePath], {encoding: 'utf8', timeout: 120000});
-  writePrivate(path.join(ctx.stateDir, 'core-check.log'), (checked.stdout || '') + (checked.stderr || ''));
+  io.write(path.join(ctx.stateDir, 'core-check.log'), (checked.stdout || '') + (checked.stderr || ''));
   if (checked.status !== 0) throw Error('Mihomo rejected candidate; see private smart-routing-state/core-check.log');
   const backup = path.join(ctx.stateDir, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
-  writePrivate(path.join(backup, 'Script.js'), currentScript);
-  writePrivate(path.join(backup, 'runtime.yaml'), fs.readFileSync(ctx.runtimeFile));
-  writePrivate(path.join(backup, 'runtime.json'), JSON.stringify(ctx.config));
+  io.write(path.join(backup, 'Script.js'), currentScript);
+  io.write(path.join(backup, 'runtime.yaml'), fs.readFileSync(ctx.runtimeFile));
+  io.write(path.join(backup, 'runtime.json'), JSON.stringify(ctx.config));
   const originalScript = oldState ? oldState.originalScript : path.join(backup, 'Script.js');
   const generated = render(previous, settings);
   const state = {version: 1, originalScript, scriptHash: hash(generated), backup, subscriptionFile: ctx.subscriptionFile, subscriptionHash, previousState: oldState, settingsBefore};
   try {
-    writePrivate(ctx.scriptFile, generated);
-    writePrivate(ctx.runtimeFile, YAML.stringify(candidate));
+    io.write(ctx.scriptFile, generated);
+    io.write(ctx.runtimeFile, YAML.stringify(candidate));
     await api('PUT', '/configs?force=true', {path: candidatePath});
     let report;
     for (let i = 0; i < 5; i++) {
       try {report = await verify(ctx, api, settings); break;} catch (error) {if (i === 4) throw error; await sleep(400);}
     }
     if (hash(fs.readFileSync(ctx.subscriptionFile)) !== subscriptionHash) throw Error('Subscription file changed during installation');
-    writePrivate(stateFile, JSON.stringify(state, null, 2));
-    writePrivate(path.join(ctx.stateDir, 'settings.json'), JSON.stringify(settings, null, 2));
-    writePrivate(path.join(ctx.stateDir, 'verification.json'), JSON.stringify(report, null, 2));
+    io.write(stateFile, JSON.stringify(state, null, 2));
+    io.write(path.join(ctx.stateDir, 'settings.json'), JSON.stringify(settings, null, 2));
+    io.write(path.join(ctx.stateDir, 'verification.json'), JSON.stringify(report, null, 2));
     return {...report, subscriptionUnchanged: true, existingRulesPreserved: true, downloadedBytes, backup};
   } catch (error) {
-    writePrivate(ctx.scriptFile, currentScript);
-    writePrivate(ctx.runtimeFile, fs.readFileSync(path.join(backup, 'runtime.yaml')));
+    io.write(ctx.scriptFile, currentScript);
+    io.write(ctx.runtimeFile, fs.readFileSync(path.join(backup, 'runtime.yaml')));
     try {await api('PUT', '/configs?force=true', {path: path.join(backup, 'runtime.json')});}
     catch {throw Error(error.message + '; automatic rollback reload failed, reload the saved original runtime manually');}
     throw Error(error.message + '; original script and runtime restored');
@@ -316,6 +316,6 @@ async function main(argv) {
     mode: candidate.mode, managedRules: candidate.rules.filter(engine.managedRule).length,
     automaticProxySelection: true, domesticDirectBeforeSubscription: true, aiHasDirectFallback: false, sources: engine.sources};
 }
-module.exports = {engine, discover, load, render, preserved, argumentsOf, main, controller, verify, writePrivate, rollback,
+module.exports = {apply,engine, discover, load, render, preserved, argumentsOf, main, controller, verify, writePrivate, rollback,
   resolveConfigDir, selectClient, bindingPath, downloadRules, activeSelection, assertActive};
 if (require.main === module) main(process.argv.slice(2)).then(r => console.log(JSON.stringify(r, null, 2))).catch(e => {console.error(e.message); process.exitCode = 1;});

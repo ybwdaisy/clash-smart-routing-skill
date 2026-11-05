@@ -21,6 +21,10 @@ An independent temporary LaunchAgent protects setup. Its private journal saves a
 
 Re-run setup after updating skill files. Existing terminals need the source command once for the old function to be replaced. Fresh terminals load it automatically. Backups and generated state remain under `~/.config/proxy` (0700/0600), never in Git.
 
+## 全新重建
+
+旧配置全部弃用时，使用 `proxy setup --fresh`；已有同名旧命令时先用明确的 `node .../proxy-cli.cjs setup --fresh` 入口。支持 macOS Clash Verge/Rev。先读[清理范围、备份与回退](proxy-fresh.md)，预览用 `--fresh --dry-run`，普通升级仍用 setup。
+
 ## Commands
 
 | Command | Behavior |

@@ -50,6 +50,17 @@ proxy config verify      # 核验分流规则
 
 更新 Skill 后重跑 `setup`。`proxy setup --rollback` 回退上次集成，`proxy uninstall` 恢复原终端/后台配置，私有备份保留。旧 `clash-net` 命令和两个旧后台启动项会在备份后迁移。详见 [proxy 使用与边界](skills/clash-smart-routing/references/proxy.md)。
 
+**旧配置全部弃用、用新版重建（macOS Clash Verge/Rev）：**
+
+```sh
+node ~/.codex/skills/clash-smart-routing/scripts/proxy-cli.cjs setup --fresh --dry-run
+node ~/.codex/skills/clash-smart-routing/scripts/proxy-cli.cjs setup --fresh
+source ~/.config/zsh/proxy.zsh
+proxy on
+```
+
+先私有备份，再清理旧代理命令、环境变量、专用启动项及自定义分流/DNS 覆写，保留客户端、订阅和无关设置。完成实际网络验收才提交配置，失败自动回退。普通升级继续用 `setup`，FlClash 目前也用普通 setup。详见[全新重建](skills/clash-smart-routing/references/proxy-fresh.md)。
+
 只配置分流、或使用其他平台时，仍可直接运行：
 
 ```sh

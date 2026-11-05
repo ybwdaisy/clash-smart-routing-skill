@@ -1,4 +1,8 @@
 # Managed by clash-smart-routing proxy. Only this wrapper changes the parent shell.
+[[ ${path[1]:-} == "$HOME/.local/bin" ]] || path=("$HOME/.local/bin" "${path[@]}")
+export PATH
+rehash
+unalias proxy clash-net 2>/dev/null
 proxy() {
   local action=${1:-on} code result
   case "$action" in

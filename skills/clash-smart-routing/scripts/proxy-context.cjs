@@ -7,7 +7,8 @@ const file=name=>path.join(base(),name);
 function read(name,fallback=null){try{return JSON.parse(fs.readFileSync(file(name),'utf8'));}catch{return fallback;}}
 function write(name,value){const text=typeof value==='string'?value:JSON.stringify(value,null,2)+'\n';const f=file(name);if(fs.existsSync(f)&&fs.readFileSync(f,'utf8')===text)return false;router.writePrivate(f,text);return true;}
 function cleanEnv(env=process.env){return Object.fromEntries(Object.entries(env).filter(([k])=>!KEYS.includes(k)&&!['PROXY_SHELL_MODE','PROXY_CONTEXT'].includes(k)));}
-function settings(){return {...{recoveryEnabled:true,learningEnabled:true,noProxy:['localhost','127.0.0.1','::1','.local','.lan','.internal']},...read('settings.json',{})};}
+function defaults(){return {recoveryEnabled:true,learningEnabled:true,noProxy:['localhost','127.0.0.1','::1','.local','.lan','.internal']};}
+function settings(){return {...defaults(),...read('settings.json',{})};}
 function noProxy(values){if(!Array.isArray(values)||values.some(x=>typeof x!=='string'||!x||!/^[-A-Za-z0-9_.*:/]+$/.test(x)))throw Error('Invalid no_proxy entry');return [...new Set(values)].join(',');}
 function variables(context,config=settings()){
  if(context.phase!=='ready')return Object.fromEntries(KEYS.map(k=>[k,null]));
@@ -64,4 +65,4 @@ function syncLaunchd(values,ops=launchctl,ownership=read('environment-owner.json
 function restoreLaunchd(ops=launchctl,ownership=read('environment-owner.json')){
  if(!ownership)return;for(const key of KEYS)if(ops('getenv',key)===ownership.last[key])ops(ownership.baseline[key]===null?'unsetenv':'setenv',key,ownership.baseline[key]===null?undefined:ownership.baseline[key]);
 }
-module.exports={KEYS,base,file,read,write,cleanEnv,settings,noProxy,variables,quote,shell,discover,ownsListener,systemMatches,launchctl,syncLaunchd,restoreLaunchd};
+module.exports={defaults,KEYS,base,file,read,write,cleanEnv,settings,noProxy,variables,quote,shell,discover,ownsListener,systemMatches,launchctl,syncLaunchd,restoreLaunchd};

@@ -5,7 +5,7 @@ const YAML=require('yaml'),c=require('./proxy-context.cjs'),safety=require('./pr
 const pause=ms=>new Promise(yes=>setTimeout(yes,ms));
 async function quit(selection){
  if(path.basename(selection.root)==='com.follow.clash')return require('./flclash-client.cjs').quit();
- cp.spawnSync('/usr/bin/osascript',['-e','tell application "Clash Verge" to quit'],{encoding:'utf8',timeout:10000});
+ cp.spawnSync('/usr/bin/osascript',['-e','tell application '+JSON.stringify(selection.app)+' to quit'],{encoding:'utf8',timeout:10000});
  for(let i=0;i<100;i++){const p=cp.spawnSync('/bin/ps',['-p',String(selection.pid),'-o','comm='],{encoding:'utf8'});if(!p.stdout.includes(selection.app+'/Contents/MacOS/'))return;await pause(100)}
  throw Error('Client did not quit; preferences retained');
 }
