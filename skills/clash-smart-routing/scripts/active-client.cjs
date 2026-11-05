@@ -1,11 +1,12 @@
 'use strict';
 const fs = require('node:fs'), path = require('node:path'), cp = require('node:child_process');
+const metadata = new Map();
 function runningApps(text) {
   const apps = new Map();
   for (const line of text.split('\n')) {
-    const match = line.trim().match(/^(?:\d+\s+)?(.*\/(FlClash|Clash Verge(?: Rev)?)\.app)\/Contents\/MacOS\/(FlClash|clash-verge)$/);
-    if (match && ((match[2] === 'FlClash') === (match[3] === 'FlClash')))
-      apps.set(match[1], {app: match[1], client: match[2] === 'FlClash' ? 'flclash' : 'verge'});
+    const match = line.trim().match(/^(?:(\d+)\s+)?(.*\/(FlClash|Clash Verge(?: Rev)?)\.app)\/Contents\/MacOS\/(FlClash|clash-verge)$/);
+    if (match && ((match[3] === 'FlClash') === (match[4] === 'FlClash')))
+      apps.set(match[2], {app: match[2], pid:Number(match[1])||null, client: match[3] === 'FlClash' ? 'flclash' : 'verge'});
   }
   return [...apps.values()];
 }
@@ -15,7 +16,7 @@ function select(roots, apps, bundleId) {
   const app = apps[0], identifier = bundleId(app.app);
   const matches = roots.filter(root => path.basename(root) === identifier);
   if (matches.length !== 1) return {status: 'paused-unconfigured-client', client: app.client};
-  return {status: 'active', client: app.client, appName: path.basename(app.app, '.app'), root: matches[0], app: app.app};
+  return {status: 'active', client: app.client, appName: path.basename(app.app, '.app'), pid:app.pid, root: matches[0], app: app.app};
 }
 function detect(roots, deps = {}) {
   try {
@@ -27,9 +28,11 @@ function detect(roots, deps = {}) {
     const bundleId = deps.bundleId || (app => {
       const file = path.join(app, 'Contents/Info.plist');
       if (!fs.existsSync(file)) throw Error('Application metadata is unavailable');
+      const stamp=fs.statSync(file).mtimeMs, cached=metadata.get(file);
+      if(cached?.stamp===stamp)return cached.id;
       const r = cp.spawnSync('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleIdentifier', file], {encoding: 'utf8', timeout: 2000});
       if (r.status !== 0) throw Error('Application identifier is unavailable');
-      return r.stdout.trim();
+      const id=r.stdout.trim();metadata.set(file,{stamp,id});return id;
     });
     return select(roots, runningApps(processes), bundleId);
   } catch { return {status: 'paused-detection-error'}; }

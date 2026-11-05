@@ -1,0 +1,13 @@
+#!/bin/sh
+# Managed by clash-smart-routing proxy CLI v1
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
+if [ -f "$script_dir/proxy-cli.cjs" ]; then
+  skill_dir=$(CDPATH= cd -- "$script_dir/.." && pwd) || exit 1
+else
+  skill_dir="${CODEX_HOME:-$HOME/.codex}/skills/clash-smart-routing"
+fi
+if [ ! -f "$skill_dir/scripts/proxy-cli.cjs" ]; then
+  printf '%s\n' 'Install the clash-smart-routing skill before using proxy.' >&2
+  exit 1
+fi
+exec node "$skill_dir/scripts/proxy-cli.cjs" "$@"

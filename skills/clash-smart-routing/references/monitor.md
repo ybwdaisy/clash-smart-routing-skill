@@ -1,3 +1,5 @@
+> macOS 一体化安装使用 [proxy](proxy.md)，以下底层脚本/独立服务说明用于诊断；不要与统一管理器同时安装旧服务。
+
 # Computer monitoring and learning
 
 This optional local Node.js process complements maintained classifications. It is not a GFW detector or an AI decision for every connection. No MCP server, paid model call or remote connection upload is needed.
@@ -7,15 +9,13 @@ This optional local Node.js process complements maintained classifications. It i
 First install and verify the base Clash overlay. Keep the skill directory at a stable path, with its npm dependency installed. On macOS:
 
 ```sh
-node <skill-dir>/scripts/routing-monitor.cjs install
-node <skill-dir>/scripts/routing-monitor.cjs status
+proxy monitor on
+proxy monitor status
 ```
 
-`install` preserves the subscription, adds a `smart-routing-learned` file provider if needed through the backed-up installer, and starts `~/Library/LaunchAgents/io.github.clash-smart-routing.monitor.plist`. An already configured provider is reused without reloading the client. The default macOS service follows the sole running supported desktop client: a supervisor polls every two seconds and stops the old worker before starting the new one. Both apps running, neither running, or ambiguous app metadata pauses the service; a shared proxy port is not used to guess ownership. It never starts apps or installs a missing overlay just because a different app opened. Configure both clients first. Re-run `install` without `--config-dir` once to upgrade an old fixed LaunchAgent.
+The unified manager owns this worker and follows native App/config events with a 15-second fallback. Both/no Apps pause; no shared-port guessing. Configure each client's overlay first. `proxy setup` migrates old standalone services; do not install them alongside the manager.
 
-The service runs as the current user and restarts at login. The Node executable and script are literal arguments. Explicit `install --config-dir <path>` retains a fixed target. Reinstall after moving the skill or changing Node. Other operating systems can run `watch --config-dir <path>` through their own service manager; automated installation and live verification currently cover macOS only.
-
-Use default `uninstall` to stop the service and clear learned leases across configured clients; daily budgets remain preserved. Base domestic/AI routing stays installed and can be rolled back separately through `clash-router.cjs rollback`. A foreground fixed `watch` process must be stopped first. `once` runs one cycle when the monitor is installed and no other monitor is running.
+`proxy monitor off` stops the worker and clears learned leases while preserving budgets and base routing. `proxy monitor status` includes the active App, worker and latest client report. Other platforms may run the lower-level `watch --config-dir <path>` through their own service manager. Explicit fixed workers remain diagnostic tools.
 
 ## Decisions and limits
 
@@ -43,7 +43,7 @@ All state is under the client config's private `smart-routing-state/` directory:
 
 Cached public classifications refresh daily. Classification errors clear learned rules and pause that cycle. Controller outages are reported and cleanup is attempted; if the controller is unreachable or the process is killed, lease expiration cannot be enforced until it returns. Startup clears previous endpoint leases, and graceful shutdown attempts to unload them. Do not claim leases have a kernel-enforced timeout. If the service stops unexpectedly, use `status`, restart it, or run `uninstall`; confirm the live learned provider is empty before relying on rollback. Reports are active-connection evidence, not historical usage or a quota-savings measurement.
 
-On client switches, the supervisor waits for the old worker to exit, neutralizes its learned file and clears endpoint observations while preserving budgets. It attempts to refresh that old provider; if the old app is closed, it will read the empty file next launch. Each client's state stays separate. `~/.config/clash-net/follow-monitor.json` records the active target and supervisor state (respecting `XDG_CONFIG_HOME`). `status` combines this with the selected client's own report; no active client returns a paused status without falling back to an old binding.
+On client switches, the supervisor waits for the old worker to exit, neutralizes its learned file and clears endpoint observations while preserving budgets. It attempts to refresh that old provider; if the old app is closed, it will read the empty file next launch. Each client's state stays separate. `~/.config/proxy/runtime.json` records the active target and supervisor state (respecting `XDG_CONFIG_HOME`). `status` combines this with the selected client's own report; no active client returns a paused status without falling back to an old binding.
 
 After installation, require `status` to have a recent `running` report, the LaunchAgent to be loaded, base verification to pass, and the active learned provider to match its file. Prove learning with two observations and an actual new connection in an isolated kernel fixture; also test protection, expiry, failure rollback and certificate/redirect rejection. On the user's machine, do not manufacture real site overrides merely to show a nonzero learned count. Run the normal bounded route probes and compare the subscription hash.
 

@@ -1,3 +1,5 @@
+> macOS 一体化安装使用 [proxy](proxy.md)，以下底层脚本/独立服务说明用于诊断；不要与统一管理器同时安装旧服务。
+
 # Codex 连不上网：按需恢复主节点
 
 复现用户的日常操作：保持「节点选择 → 自动选择」，在自动组中测速，排除香港，比较其余地区的可用节点，再将最快节点固定在自动组内并复测。新加坡等其他地区也参与，不再限定日本、台湾、美国。原省流分流和 AI 跟随主选择的关系保留。
@@ -21,7 +23,7 @@ node <skill-dir>/scripts/node-recovery.cjs status
 node <skill-dir>/scripts/node-recovery.cjs rollback
 ```
 
-macOS 默认自动跟随唯一运行的客户端，双开或全关时暂停；`clash-net config active` 查看识别结果。手动诊断可加 `--config-dir <实际目录>`，其他平台仍支持保存目录；自动选择组不能唯一确定时加 `--latency-group <现有组名>`。不猜客户端、组名或测速地址。
+macOS 默认自动跟随唯一运行的客户端，双开或全关时暂停；`proxy config active` 查看识别结果。手动诊断可加 `--config-dir <实际目录>`，其他平台仍支持保存目录；自动选择组不能唯一确定时加 `--latency-group <现有组名>`。不猜客户端、组名或测速地址。
 
 ## 执行约定
 
@@ -42,12 +44,12 @@ macOS 默认自动跟随唯一运行的客户端，双开或全关时暂停；`c
 仅在用户明确要求自动检测和恢复时启用：
 
 ```sh
-node <skill-dir>/scripts/node-watchdog.cjs install
-node <skill-dir>/scripts/node-watchdog.cjs status
-node <skill-dir>/scripts/node-watchdog.cjs uninstall
+proxy auto on
+proxy auto status
+proxy auto off
 ```
 
-安装 `~/Library/LaunchAgents/io.github.clash-smart-routing.node-watchdog.plist`，登录后自动运行。默认启动项不固定配置目录，常驻父进程每 2 秒识别运行中的客户端并切换子进程；实质联网检查仍为每 60 秒一次。旧版固定启动项可重新执行不带 `--config-dir` 的 install 升级。它独立于 Codex 的联网推理和定时任务，不调用模型，也不依赖 Codex 先恢复联网；与国内直连学习服务分别管理。需保持本技能及 Node 路径稳定，安装时记录绝对路径。
+由统一 `proxy-manager` 管理本地恢复子进程，App 启停事件触发跟随，15 秒兜底；实际联网检查每 60 秒一次。它不调用模型，也不依赖 Codex 先恢复联网。需要保持已安装技能及 Node 路径稳定。旧独立 LaunchAgent 由 `proxy setup` 备份并迁移。
 
 - 每 60 秒检查一次，仅在 Codex／ChatGPT 桌面进程运行、Clash 控制接口可用、处于 Rule 模式且主组指向自动组并能解析到真实节点时探测。应用关闭、Clash 关闭、主组另选节点/其他组、手动 DIRECT、其他模式或手动恢复任务占用时暂停；不自动开关应用或代理。
 - 常规检测只发小型 HTTPS HEAD 请求，不下载正文。连续两次传输失败才调用一次原 `recover`。HTTP 401/403/429/5xx 等服务响应本身不会触发换节点；本地 curl／代理端口不可用或链路证据缺失时暂停处理，不把它们当作节点故障。
@@ -58,9 +60,7 @@ node <skill-dir>/scripts/node-watchdog.cjs uninstall
 
 状态与报告位于 `smart-routing-state/node-watchdog-state.json`、`node-watchdog-report.json`、`node-watchdog-last-recovery.json`，权限均为 600。`status` 显示服务状态和最近检查；需同时确认服务 running、报告时间新鲜以及实际 probe 结果。安装成功不等于经历过真实断网后的自动恢复。
 
-快捷命令统一叫 `clash-net`。将技能中的 `scripts/clash-net` 以可执行文件安装至 `~/.local/bin/clash-net`，并确保该目录已在 PATH 中；它读取已安装的 `$CODEX_HOME/skills/clash-smart-routing`（默认 `~/.codex/skills/clash-smart-routing`）。直接在仓库执行该入口时，使用它所在的技能目录。
-
-可用 `clash-net auto status` 查看、`clash-net auto off` 停止、`clash-net auto on` 启用。停用只停止自动检测，保留当前节点、省流规则和手动命令。单次恢复用 `clash-net`，只检查用 `clash-net check`。
+快捷命令为 `proxy`。单次恢复用 `proxy recover`，只检查用 `proxy check`。`proxy auto off` 只停恢复 worker，当前节点、省流规则、终端和 GUI 环境同步继续；`proxy off` 仅关闭当前终端。安装及回退见 [proxy](proxy.md)。
 
 ## 完成标准
 

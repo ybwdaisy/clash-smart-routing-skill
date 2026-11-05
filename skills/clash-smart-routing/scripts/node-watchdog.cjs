@@ -55,7 +55,7 @@ function logSignals(state, now, logPath = path.join(os.homedir(), '.codex/logs_2
   } catch { return {available: false, cursor: state.logCursor, events: []}; }
 }
 function notify(kind) {
-  const message = kind === 'recovered' ? '已更新「自动选择」的固定节点，ChatGPT 公开连通性验证通过。' : '自动恢复未通过，已停止本轮并冷却 30 分钟。可用 clash-net auto status 查看。';
+  const message = kind === 'recovered' ? '已更新「自动选择」的固定节点，ChatGPT 公开连通性验证通过。' : '自动恢复未通过，已停止本轮并冷却 30 分钟。可用 proxy auto status 查看。';
   cp.spawnSync('/usr/bin/osascript', ['-e', 'on run argv\ndisplay notification (item 1 of argv) with title "Codex 网络自救"\nend run', message],
     {encoding: 'utf8', timeout: 3000});
 }

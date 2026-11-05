@@ -20,9 +20,37 @@ cd clash-smart-routing-skill
 npm --prefix skills/clash-smart-routing ci --ignore-scripts --no-audit --no-fund
 ```
 
-### Clash Verge / Rev
+### 电脑端：一个 `proxy` 命令（macOS）
 
-保持客户端运行，依次预览、应用和核验：
+把完整 Skill 安装到 `~/.codex/skills/clash-smart-routing` 后，在 Clash Verge / Rev 或 FlClash 中导入订阅，只开其中一个 App，再运行：
+
+```sh
+node ~/.codex/skills/clash-smart-routing/scripts/proxy-cli.cjs setup --dry-run
+node ~/.codex/skills/clash-smart-routing/scripts/proxy-cli.cjs setup
+source ~/.config/zsh/proxy.zsh
+proxy status
+proxy check
+proxy check --gui
+```
+
+自动配置省流分流、终端环境、系统代理和新 GUI 进程环境，并合并后台检测。以后彻底退出旧客户端、打开另一个即可自动跟随，**端口从当前 App 读取**。新增客户端需先执行一次 `proxy config apply`（FlClash 加 `--activate`）。App 启停/配置变化由事件触发，15 秒兜底检查；网络健康检测每分钟一次。
+
+```sh
+proxy                    # 开启当前终端代理
+proxy off                # 只关闭当前终端，直到 proxy on
+proxy status             # 当前 App、端口、终端/GUI/后台状态
+proxy recover            # 持续断网时，也可手动测速与恢复
+proxy auto status        # 自动恢复状态；on/off 控制开关
+proxy monitor status     # 省流学习状态；on/off 控制开关
+proxy audit              # 查看当前代理大流量
+proxy config verify      # 核验分流规则
+```
+
+保留「主组 → 自动选择 → 固定节点」习惯，AI 跟随主界面；恢复候选排除香港，失败回退原节点。安装失败由独立保护进程恢复 Clash Verge。两款 App 同时开或都关闭时暂停，不猜测客户端。GUI 使用系统代理；`launchctl` 环境只影响新进程，已运行 App 必要时需重启。默认不开 TUN，无法接管忽略系统代理的 App。
+
+更新 Skill 后重跑 `setup`。`proxy setup --rollback` 回退上次集成，`proxy uninstall` 恢复原终端/后台配置，私有备份保留。旧 `clash-net` 命令和两个旧后台启动项会在备份后迁移。详见 [proxy 使用与边界](skills/clash-smart-routing/references/proxy.md)。
+
+只配置分流、或使用其他平台时，仍可直接运行：
 
 ```sh
 node skills/clash-smart-routing/scripts/clash-router.cjs plan
@@ -30,69 +58,7 @@ node skills/clash-smart-routing/scripts/clash-router.cjs apply
 node skills/clash-smart-routing/scripts/clash-router.cjs verify
 ```
 
-### FlClash（macOS）
-
-已适配 FlClash 0.9.2。先在客户端导入订阅并完成首次启动，再执行：
-
-```sh
-node skills/clash-smart-routing/scripts/clash-router.cjs plan --config-dir "$HOME/Library/Application Support/com.follow.clash"
-node skills/clash-smart-routing/scripts/clash-router.cjs apply --config-dir "$HOME/Library/Application Support/com.follow.clash" --activate
-node skills/clash-smart-routing/scripts/clash-router.cjs verify
-```
-
-使用原生脚本覆写，应用时备份并短暂重启 FlClash，开启带随机密钥的本地控制接口。`--activate` 才会开启 FlClash 系统代理；不加则保留原开关。订阅源文件不改，已有脚本继续组合执行。详见 [FlClash 说明](skills/clash-smart-routing/references/flclash.md)。
-
-启动检测会按实际混合端口等待 HTTP、HTTPS、SOCKS 与监听就绪（最多 15 秒），避免把系统代理异步更新误判为失败。需要兼容已有终端 `proxy` 命令时，先核对它的端口；两个客户端使用相同端口时保持互斥运行。
-
-### 节点与后台检测（两个电脑客户端通用）
-
-macOS 下，`clash-net` 和后台服务会自动跟随当前运行的客户端，无需重新绑定。先彻底退出当前 App，再打开另一个并开启系统代理；后台约每 2 秒检查一次，旧检测退出后接上新客户端。两个同时开或都没开时暂停，不猜测、不替你开关 App。两个客户端需要事先完成规则配置；首次升级后重新运行一次 `clash-net auto on` 和 `routing-monitor.cjs install`，将旧的固定启动项升级为自动跟随。
-
-`clash-net config active` 查看当前识别结果。明确指定 `--config-dir` 仍可用于手动诊断；macOS 自动模式不受旧 `select` 记录影响，其他平台继续使用显式或已保存的目录。
-
-运行 `clash-net`、`check` 或 `status` 时，会先显示 `当前客户端：FlClash（自动跟随）` 或对应的 `Clash Verge`。JSON 输出和后台状态也包含当前 App 名称。
-
-AI 跟随主界面的节点选择，不单独自动选节点。运行 `node skills/clash-smart-routing/scripts/probe.cjs` 可检查 ChatGPT 实际连通性和请求耗时，检测失败不会切换线路。
-
-Codex 连不上网时，可按需复现“测速 → 排除香港 → 选最快可用节点 → 验证”的操作，其他地区（包括新加坡）均可参与：
-
-```sh
-node skills/clash-smart-routing/scripts/node-recovery.cjs recover
-```
-
-保持「节点选择 → 自动选择」，只更新自动组内的固定节点，AI 一起跟随。候选及复测需低于 200ms，ChatGPT 公开请求与实际链路也需通过。失败恢复原固定节点或自动模式后停止。主组另选其他节点时暂停，不改回。`check` 只检查、`plan` 只测速、`status` 看结果、`rollback` 恢复原状态。公开端点成功仍需回到 Codex 验证实际请求。详见[节点恢复](skills/clash-smart-routing/references/node-recovery.md)。
-
-macOS 可选自动检测与恢复，不需要 Codex 先联网：
-
-```sh
-node skills/clash-smart-routing/scripts/node-watchdog.cjs install
-node skills/clash-smart-routing/scripts/node-watchdog.cjs status
-```
-
-每 60 秒发小请求并检查近期 Codex 传输错误，持续异常才执行上面的恢复流程；成功冷却 10 分钟，失败冷却 30 分钟，每小时最多 3 次。正常时安静，应用或 Clash 关闭时暂停。用 `node-watchdog.cjs uninstall` 停止；不会修改订阅、省流规则或另设 AI 节点。
-
-快捷命令叫 **`clash-net`**。安装 Skill 后，将其中的 `scripts/clash-net` 放进 PATH 目录即可使用；仓库内也可直接运行 `skills/clash-smart-routing/scripts/clash-net`。
-
-```sh
-clash-net              # 按需测速与恢复
-clash-net check        # 只检查，不切换
-clash-net auto status  # 自动检测状态
-clash-net auto on      # 启用自动检测（macOS）
-clash-net auto off     # 停止自动检测
-```
-
-分类数据每天刷新。更新功能时，在仓库执行 `git pull --ff-only`，重新安装依赖，再执行 `apply` 和 `verify`。
-
-按需检查代理大流量：`node skills/clash-smart-routing/scripts/traffic-audit.cjs`。回滚上次应用：`node skills/clash-smart-routing/scripts/clash-router.cjs rollback`。
-
-macOS 可开启后台检测与谨慎学习，无需 MCP：
-
-```sh
-node skills/clash-smart-routing/scripts/routing-monitor.cjs install
-node skills/clash-smart-routing/scripts/routing-monitor.cjs status
-```
-
-每分钟检查一次；只对订阅兜底的未知 HTTPS 连接做少量直连验证，两次通过后添加限定域名/IP 的临时规则。AI、GitHub、推送和订阅明确指定的境外代理规则排除在学习之外。TUN 开启时暂停学习。停止并清空学习结果用 `routing-monitor.cjs uninstall`；回滚前先停止检测。详见[检测说明](skills/clash-smart-routing/references/monitor.md)。
+FlClash 原生脚本适配和首次启用说明见 [FlClash 文档](skills/clash-smart-routing/references/flclash.md)。分类数据每天刷新；[分流核验](skills/clash-smart-routing/SKILL.md)与[节点恢复](skills/clash-smart-routing/references/node-recovery.md)说明保留了具体约束。
 
 ### Shadowrocket（小火箭）
 
