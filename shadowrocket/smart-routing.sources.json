@@ -1,13 +1,13 @@
 {
   "format": 1,
-  "sourceCommit": "00b11af64b4ad8f63d23b24a979551dbdef6910e",
+  "sourceCommit": "00259630d9cfa532d324948b7e71e9fb84290d88",
   "updateURL": "https://raw.githubusercontent.com/ybwdaisy/clash-smart-routing-skill/main/shadowrocket/smart-routing.conf",
-  "outputSha256": "88c1ed57ced13001f86daf91a859f614d20574e6818340dea03bfbb427a9b3c2",
+  "outputSha256": "a3e7c7bf1f2645b493cdcb0db63418c305e20d38d1c5fe0293319c003c65fc09",
   "baseSha256": "f26d0ef8144ba0a4955eb63951ab127719c7c0257d3c70a3f8949fc8e8ed97df",
   "sources": {
     "ai": {
       "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ai-!cn.list",
-      "sha256": "4ee70bcff0a881daf3fe8cfeaed3a8236be50dde4bc1ce0de643aa03e5464fbf"
+      "sha256": "c83107db044f54980cbaecccfa4042b680cbada46c65abf6656fbbeaae086399"
     },
     "apple-ai": {
       "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple-intelligence.list",
@@ -15,7 +15,7 @@
     },
     "github": {
       "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/github.list",
-      "sha256": "58fad9a70ecb92de3b36ecf8fc63cab3839836e611c8a5dea58df4947cb2df0c"
+      "sha256": "e1f8c98a265ce67ffaddded86e71d0d76595212eb4f331eb2d2e52e52d07beda"
     },
     "private": {
       "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.list",
