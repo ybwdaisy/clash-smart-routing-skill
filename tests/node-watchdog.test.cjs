@@ -18,6 +18,7 @@ function fixture() {
     calls.push({method, route});
     if (method === 'GET' && route === '/configs') return {mode};
     if (method === 'GET' && route === '/proxies') return {proxies: clone(proxies)};
+    if(method==='GET' && /^\/proxies\/[^/]+$/.test(route)) return {extra:Object.fromEntries(require('../skills/clash-smart-routing/scripts/node-recovery.cjs').SERVICES.map(s=>[s.url,{alive:true,history:[{time:new Date().toISOString(),delay:80}]}]))};
     throw Error('Watchdog must not directly mutate the controller');
   };
   const deps = {now: () => now, appRunning: () => true, logSignals: s => ({available: true, cursor: s.logCursor ?? 100, events: []}),
@@ -155,4 +156,18 @@ test('launch arguments are literal and XML-safe, with stable service identity an
   assert.ok(plist.includes('/node &amp; runtime')); assert.ok(plist.includes('/config &lt;dir&gt;'));
   assert.ok(plist.includes('<string>watch</string>')); assert.ok(plist.includes('<key>ThrottleInterval</key><integer>30</integer>'));
   assert.ok(!plist.includes('/bin/sh')); assert.ok(!plist.includes('auth.json'));
+});
+
+test('a Google transport failure is detected even when ChatGPT and GitHub are healthy', async () => {
+  const f = fixture(), good = {publicEndpointReachable:true,routeVerified:true,httpStatus:200};
+  f.deps.probe = async () => ({...good, serviceChecks:[good,{publicEndpointReachable:false,routeVerified:false,httpStatus:null,exitCode:35},good]});
+  const first = await cycle(f.ctx,f.api,emptyState(),f.deps); assert.equal(first.report.status,'confirming-failure');
+  f.advance(DEFAULTS.interval);const second = await cycle(f.ctx,f.api,first.state,f.deps);
+  assert.equal(second.report.status,'recovered');assert.equal(f.attempts(),1);
+});
+test('service HTTP rejections without a transport failure do not trigger node churn', async () => {
+  const f = fixture(), good = {publicEndpointReachable:true,routeVerified:true,httpStatus:200};
+  f.deps.probe = async () => ({...good,serviceChecks:[{publicEndpointReachable:false,routeVerified:true,httpStatus:429},good,good]});
+  const r = await cycle(f.ctx,f.api,{...emptyState(),failures:8,lastCheck:f.base-DEFAULTS.interval},f.deps);
+  assert.equal(r.report.status,'needs-attention-service-response');assert.equal(f.attempts(),0);
 });
