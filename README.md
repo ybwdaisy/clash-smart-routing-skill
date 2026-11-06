@@ -39,12 +39,14 @@ proxy check --gui
 proxy                    # 开启当前终端代理
 proxy off                # 只关闭当前终端，直到 proxy on
 proxy status             # 当前 App、端口、终端/GUI/后台状态
-proxy recover            # 持续断网时，也可手动测速与恢复
+proxy recover            # 三站双轮筛选后选择节点，失败回退
 proxy auto status        # 自动恢复状态；on/off 控制开关
 proxy monitor status     # 省流学习状态；on/off 控制开关
 proxy audit              # 查看当前代理大流量
 proxy config verify      # 核验分流规则
 ```
+
+自动恢复每分钟检测 ChatGPT、Google、GitHub；连续传输失败或检测到 Codex 持续断流时，先给最多 12 个非香港候选做三站双轮检测，再切换一次到已验证的节点。预筛不改变当前节点；成功后冷却 10 分钟，失败回退并冷却 30 分钟，每小时最多 3 轮。`proxy auto status` 查看状态，`proxy auto off` 暂停。
 
 保留「主组 → 自动选择 → 固定节点」习惯，AI 跟随主界面；恢复候选排除香港，失败回退原节点。安装失败由独立保护进程恢复 Clash Verge。两款 App 同时开或都关闭时暂停，不猜测客户端。GUI 使用系统代理；`launchctl` 环境只影响新进程，已运行 App 必要时需重启。Verge/FlClash 默认不开 TUN，无法接管忽略系统代理的 App；原生 Clash 是需单独授权的 VPN 模式。
 

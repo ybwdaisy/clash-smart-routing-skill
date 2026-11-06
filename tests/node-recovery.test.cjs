@@ -13,6 +13,7 @@ function fixture(overrides = {}) {
   proxies['JP group'] = {type: 'Selector', all: ['香港 1'], now: '香港 1'};
   proxies['JP DIRECT'] = {type: 'Direct'};
   const ctx = {stateDir: '/nonexistent/node-recovery-fixture', config: {rules: ['MATCH,Main'], 'proxy-groups': [{name: 'Main', type: 'select', proxies: ['Auto', ...names]}]}};
+  const histories = {};
   const calls = [], delays = {'日本 1': 90, '台湾 1': 60, '美国 1': 100, Main: 70, ...overrides.delays};
   const api = async (method, route, data) => {
     calls.push({method, route, data});
@@ -20,10 +21,19 @@ function fixture(overrides = {}) {
     const match = route.match(/^\/proxies\/([^/]+)(\/delay\?.*)?$/);
     if (!match) throw Error('Unexpected API request: ' + route);
     const name = decodeURIComponent(match[1]);
+    if (method === 'GET' && !match[2]) return {...copy(proxies[name]), extra: copy(histories[name] || {})};
     if (method === 'GET' && match[2]) {
       if (overrides.onDelay) await overrides.onDelay(name, proxies);
-      if (!Number.isFinite(delays[name])) throw Error('test timeout');
-      return {delay: delays[name]};
+      const query = new URL('http://fixture'+route).searchParams;
+      const delay = query.has('expected') && overrides.onService
+        ? await overrides.onService(name, query.get('url'), Number(query.get('expected'))) : delays[name];
+      if (!Number.isFinite(delay)) throw Error('test timeout');
+      if (query.has('expected')) {
+        histories[name] ||= {};
+        histories[name][query.get('url')] = overrides.onHistory ? overrides.onHistory(name, query.get('url'))
+          : {alive:true,history:[{time:new Date().toISOString(),delay}]};
+      }
+      return {delay};
     }
     if (method === 'PUT' && !match[2]) {
       if (name !== 'Auto' || !proxies.Auto.all.includes(data.name)) throw Error('Only automatic-group pin changes are allowed');
@@ -67,7 +77,10 @@ test('plan freshly measures eligible nodes without changing selection or rules',
   const r = await run(f.ctx, f.api, 'plan', {}, f.deps);
   assert.equal(r.status, 'planned'); assert.equal(r.fastest.name, '台湾 1'); assert.equal(r.tested, 4);
   assert.deepEqual(f.proxies, before); assert.ok(f.calls.every(c => c.method === 'GET'));
-  assert.ok(f.calls.filter(c => c.route.includes('/delay?')).every(c => c.route.includes(encodeURIComponent('https://latency.example/204'))));
+  const {SERVICES} = require('../skills/clash-smart-routing/scripts/node-recovery.cjs');
+  const allowed = ['https://latency.example/204', ...SERVICES.map(s => s.url)];
+  assert.ok(f.calls.filter(c => c.route.includes('/delay?')).every(c => allowed.includes(new URL('http://fixture'+c.route).searchParams.get('url'))));
+  assert.equal(r.qualified, 3); assert.ok(r.best.rounds.length === 2);
 });
 test('recovery allows Singapore and other regions but never measures Hong Kong even if its delay is best', async () => {
   const f = fixture({delays: {Singapore: 20, '香港 1': 1, '🇭🇰 Japan relay': 2}});
@@ -104,10 +117,10 @@ test('recover pins only the automatic group and preserves main -> automatic hier
   assert.equal(f.proxies.Auto.fixed, '台湾 1'); assert.equal(f.proxies.Auto.now, '台湾 1'); assert.equal(r.hierarchyPreserved, true);
   assert.deepEqual(f.calls.filter(c => c.method !== 'GET'), [{method: 'PUT', route: '/proxies/Auto', data: {name: '台湾 1'}}]);
 });
-test('timeouts, zero delay, and no sub-200 candidate stop before any selection change', async () => {
-  const f = fixture({delays: {'日本 1': 0, '台湾 1': NaN, '美国 1': 200}});
+test('timeouts and zero delays stop before any selection change when no candidates respond', async () => {
+  const f = fixture({delays: {'日本 1': 0, '台湾 1': NaN, '美国 1': NaN}});
   const r = await run(f.ctx, f.api, 'recover', {}, f.deps);
-  assert.equal(r.status, 'no-green-candidate'); assert.equal(f.proxies.Main.now, 'Auto');
+  assert.equal(r.status, 'no-responsive-candidate'); assert.equal(f.proxies.Main.now, 'Auto');
   assert.ok(f.calls.every(c => c.method === 'GET'));
   assert.equal((await measure(async () => ({delay: -1}), 'JP', 'https://example.com')).reachable, false);
 });
@@ -136,9 +149,10 @@ test('public HTTP success without actual selected connection evidence is not suc
   const r = await run(f.ctx, f.api, 'recover', {}, f.deps);
   assert.equal(r.status, 'verification-failed'); assert.equal(r.rollback.restored, true);
 });
-test('homepage latency outside green threshold rolls back even when public endpoint works', async () => {
-  const f = fixture({delays: {Main: 201}}), r = await run(f.ctx, f.api, 'recover', {}, f.deps);
-  assert.equal(r.status, 'verification-failed'); assert.equal(r.rollback.restored, true);
+test('a latency spike does not reject a node after all real service and chain checks pass', async () => {
+  const f = fixture({delays: {Main: 586, '日本 1': 210, '台湾 1': 260, '美国 1': 300}}), r = await run(f.ctx, f.api, 'recover', {}, f.deps);
+  assert.equal(r.status, 'recovered'); assert.equal(r.finalLatency.delayMs, 586); assert.equal(r.best.name, '日本 1');
+  assert.equal(r.serviceChecks.length, 3); assert.equal(r.rollback, undefined);
 });
 test('intervening manual choice or changed subscription aborts before switching', async () => {
   const f = fixture({onDelay: async (name, p) => { p.Main.now = '美国 1'; }});
@@ -181,4 +195,85 @@ test('bounded pool preserves results, selection cycles and unsupported CLI optio
   assert.throws(() => argsOf(['recover', '--install-daemon']), /option/);
   assert.throws(() => argsOf(['recover', '--config-dir', 'one', '--config-dir', 'two']), /Duplicate/);
   assert.deepEqual(argsOf([]), {command: 'check', opts: {}});
+});
+
+test('fast Google-only node is rejected before any switch and a fully working candidate wins', async () => {
+  const f = fixture({delays: {'日本 1': 10, '台湾 1': 60}, onService: async (name, url, expected) => {
+    assert.equal(expected, url.includes('generate_204') ? 204 : 200);
+    if (name === '日本 1' && url.includes('chatgpt')) throw Error('TLS failed');
+    return name === '台湾 1' ? 100 : 200;
+  }});
+  const r = await run(f.ctx, f.api, 'recover', {}, f.deps);
+  assert.equal(r.status, 'recovered'); assert.equal(r.fastest.name, '日本 1'); assert.equal(r.selected, '台湾 1');
+  assert.equal(r.preflight.find(c => c.name === '日本 1').qualified, false);
+  assert.deepEqual(f.calls.filter(c => c.method === 'PUT').map(c => c.data.name), ['台湾 1']);
+  const firstPut = f.calls.findIndex(c => c.method === 'PUT');
+  assert.ok(f.calls.slice(0, firstPut).filter(c => c.route.includes('expected=')).length >= 6);
+});
+test('candidate must pass both service rounds and scoring favors worst service response over Google latency', async () => {
+  let count = 0;
+  const f = fixture({delays: {'日本 1': 10, '台湾 1': 80, '美国 1': 60}, onService: async (name, url) => {
+    if (name === '日本 1' && url.includes('chatgpt') && ++count === 2) throw Error('Intermittent TLS');
+    return name === '台湾 1' ? 90 : 300;
+  }});
+  const r = await run(f.ctx, f.api, 'recover', {}, f.deps);
+  assert.equal(r.selected, '台湾 1'); assert.equal(r.best.scoreMs, 90);
+  assert.equal(r.preflight.find(c => c.name === '日本 1').rounds.length, 2);
+});
+test('all candidates failing a required service leave the current node and undo untouched', async () => {
+  const f = fixture({onService: async () => {throw Error('No service response')}}); let saved = false;
+  f.deps.saveUndo = () => {saved = true};
+  const before = copy(f.proxies), r = await run(f.ctx, f.api, 'recover', {}, f.deps);
+  assert.equal(r.status, 'no-verified-candidate'); assert.equal(r.qualified, 0); assert.equal(saved, false);
+  assert.deepEqual(f.proxies, before); assert.ok(f.calls.every(c => c.method === 'GET'));
+});
+test('real Google failure after switching rolls back even when ChatGPT works', async () => {
+  const f = fixture(); f.deps.probe = async (ctx, api, main, selected, options) => ({publicEndpointReachable: !options.url.includes('google'), routeVerified: true});
+  const r = await run(f.ctx, f.api, 'recover', {}, f.deps);
+  assert.equal(r.status, 'verification-failed'); assert.equal(r.probe.publicEndpointReachable, true);
+  assert.equal(r.serviceChecks.length, 3); assert.equal(r.rollback.restored, true);
+});
+test('automatic recovery can exclude the failing current node while leaving all non-Hong-Kong regions eligible', async () => {
+  const f = fixture({delays: {Singapore: 1}}); f.proxies.Auto.fixed = 'Singapore'; f.proxies.Auto.now = 'Singapore';
+  const r = await run(f.ctx, f.api, 'recover', {excludeCurrent: true}, f.deps);
+  assert.equal(r.selected, '台湾 1'); assert.equal(r.excludedCurrentNode, 'Singapore');
+  assert.ok(!f.calls.some(c => c.route.startsWith('/proxies/Singapore/delay')));
+});
+test('preflight has a hard candidate budget and preview never mutates the selector', async () => {
+  const names = Array.from({length: 20}, (_, i) => 'extra'+i), delays = Object.fromEntries(names.map((n, i) => [n, 20+i]));
+  const f = fixture({delays}); for (const n of names) {f.proxies.Auto.all.push(n); f.proxies[n] = {type: 'Shadowsocks'}}
+  const r = await run(f.ctx, f.api, 'plan', {}, f.deps);
+  assert.equal(r.preflight.length, 12); assert.equal(r.preflightLimit, 12);
+  assert.equal(f.calls.filter(c => c.route.includes('expected=')).length, 12*3*2);
+  assert.ok(f.calls.every(c => c.method === 'GET'));
+});
+test('cancellation after qualification starts prevents selection', async () => {
+  const f = fixture(); let cancelled = false;
+  f.deps.assess = async (api, c) => {cancelled = true; return {...c, qualified:true, scoreMs:1, meanServiceMs:1}};
+  f.deps.cancelled = () => cancelled;
+  const r = await run(f.ctx, f.api, 'recover', {}, f.deps);
+  assert.equal(r.status, 'cancelled'); assert.ok(f.calls.every(c => c.method === 'GET'));
+});
+
+test('nonzero API delay cannot hide a wrong HTTP status or stale/missing URL history', async () => {
+  const variants = [() => ({alive:false,history:[{time:new Date().toISOString(),delay:0}]}),
+    () => ({alive:true,history:[{time:'2000-01-01T00:00:00Z',delay:10}]}), () => ({alive:true,history:[]}), () => null];
+  for (const onHistory of variants) {
+    const f=fixture({onHistory}),r=await run(f.ctx,f.api,'recover',{},f.deps);
+    assert.equal(r.status,'no-verified-candidate');assert.ok(f.calls.every(c=>c.method==='GET'));
+  }
+});
+test('public probes correlate each service host and distinguish ranged 206 from HEAD or error responses', async () => {
+  const cp=require('node:child_process'),{EventEmitter}=require('node:events'),{publicProbe}=require('../skills/clash-smart-routing/scripts/node-recovery.cjs');
+  const original=cp.spawn;let argsSeen,status=206;
+  try{
+    cp.spawn=(file,args)=>{argsSeen=args;const child=new EventEmitter();child.stdout=new EventEmitter();child.kill=()=>{};
+      setTimeout(()=>{child.stdout.emit('data',JSON.stringify({http_code:status,time_appconnect:0.01,time_total:0.02}));child.emit('close',0)},20);return child;};
+    const api=async(method,route)=>route==='/configs'?{'mixed-port':17897}:{connections:[{metadata:{sourcePort:Number(argsSeen[argsSeen.indexOf('--local-port')+1]),host:new URL(argsSeen.at(-1)).hostname},chains:['Node','Auto','Main'],rule:'RuleSet'}]};
+    const opts={url:'https://github.com/robots.txt',expectedStatus:200,via:'Auto'};
+    const ranged=await publicProbe({},api,'Main','Node',opts);assert.equal(ranged.publicEndpointReachable,true);assert.equal(ranged.routeVerified,true);assert.ok(argsSeen.includes('--range'));
+    const head=await publicProbe({},api,'Main','Node',{...opts,head:true});assert.equal(head.publicEndpointReachable,false);assert.ok(argsSeen.includes('--head'));
+    status=500;assert.equal((await publicProbe({},api,'Main','Node',opts)).publicEndpointReachable,false);
+    status=204;const google=await publicProbe({},api,'Main','Node',{url:'https://www.google.com/generate_204',expectedStatus:204,via:'Auto',head:true});assert.equal(google.publicEndpointReachable,true);assert.equal(google.routeVerified,true);
+  }finally{cp.spawn=original}
 });

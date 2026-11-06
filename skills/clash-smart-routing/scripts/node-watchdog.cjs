@@ -32,7 +32,7 @@ function transportEvent(row) {
   if (/\b(?:401|403|429|5\d\d)\b|unauthori[sz]ed|authenticat|quota|usage.limit|rate.limit|token.{0,20}expir|capacity|overload|service.unavailable|internal.server/i.test(message)) return null;
   const reason = /tls handshake eof|TLS close_notify|certificate|tls handshake/i.test(message) ? 'tls-transport'
     : /connection reset|connection refused|broken pipe|timed? out|timeout|dns error|name resolution/i.test(message) ? 'network-transport'
-    : /stream connection failed.*(?:error sending request|Connection failed)/i.test(message) ? 'request-transport' : null;
+    : /(?:stream connection failed|stream disconnected before completion).*(?:error sending request|Connection failed|connection closed|unexpected eof)/i.test(message) ? 'request-transport' : null;
   return reason ? {id: Number(row.id), at: Number(row.ts) * 1000, reason} : null;
 }
 function logSignals(state, now, logPath = path.join(os.homedir(), '.codex/logs_2.sqlite')) {
@@ -55,11 +55,15 @@ function logSignals(state, now, logPath = path.join(os.homedir(), '.codex/logs_2
   } catch { return {available: false, cursor: state.logCursor, events: []}; }
 }
 function notify(kind) {
-  const message = kind === 'recovered' ? '已更新「自动选择」的固定节点，ChatGPT 公开连通性验证通过。' : '自动恢复未通过，已停止本轮并冷却 30 分钟。可用 proxy auto status 查看。';
+  const message = kind === 'recovered' ? '已更新「自动选择」的固定节点，ChatGPT / Google / GitHub 实测通过。' : '自动恢复未通过，已停止本轮并冷却 30 分钟。可用 proxy auto status 查看。';
   cp.spawnSync('/usr/bin/osascript', ['-e', 'on run argv\ndisplay notification (item 1 of argv) with title "Codex 网络自救"\nend run', message],
     {encoding: 'utf8', timeout: 3000});
 }
 function probeKind(p) {
+  if (p?.serviceChecks) {
+    const kinds = p.serviceChecks.map(probeKind);
+    return ['local-probe-unavailable', 'route-unverified', 'transport-failure', 'service-response'].find(kind => kinds.includes(kind)) || 'healthy';
+  }
   if (p?.localFailure) return 'local-probe-unavailable';
   if (p?.publicEndpointReachable) return p.routeVerified ? 'healthy' : 'route-unverified';
   if (p?.httpStatus) return 'service-response'; // HTTP rejection/server errors are not transport failures.
@@ -69,8 +73,8 @@ async function cycle(ctx, api, state, deps = {}, options = DEFAULTS) {
   const now = deps.now ? deps.now() : Date.now();
   const persist = deps.persist || (() => {}), emit = deps.notify || (() => {});
   const running = deps.appRunning || appRunning, logs = deps.logSignals || logSignals;
-  const probe = deps.probe || ((ctx, api, main, node, options) => recovery.publicProbe(ctx, api, main, node, {...options, head: true}));
-  const attempt = deps.recover || (() => recovery.main(['recover', '--config-dir', ctx.root]));
+  const probe = deps.probe || ((ctx, api, main, node, options) => recovery.probeServices(ctx, api, main, node, {...options, head: true}));
+  const attempt = deps.recover || (() => recovery.main(['recover', '--config-dir', ctx.root], {excludeCurrent: true}));
   const s = JSON.parse(JSON.stringify(state));
   s.attempts = s.attempts.filter(t => t > now - 60 * MINUTE && t <= now);
   s.transportEvents = s.transportEvents.filter(e => e.at >= now - options.logWindow && e.at <= now);
@@ -182,7 +186,7 @@ async function watch(root) {
   process.on('SIGINT', stop); process.on('SIGTERM', stop);
   try {
     while (!stopping) {
-      try { await once(root, {recover: async () => stopping ? {status: 'cancelled'} : recovery.main(['recover', '--config-dir', root])}); }
+      try { await once(root, {recover: async () => stopping ? {status: 'cancelled'} : recovery.main(['recover', '--config-dir', root], {excludeCurrent: true})}); }
       catch { save(reportFile(ctx), {at: new Date().toISOString(), status: 'paused-watchdog-error', authenticatedCodexSessionVerified: false}); }
       if (!stopping) await new Promise(yes => { const timer = setTimeout(yes, DEFAULTS.interval); wake = () => { clearTimeout(timer); yes(); }; });
       wake = null;

@@ -6,6 +6,12 @@ const net = require('node:net'), cp = require('node:child_process'), os = requir
 const router = require('./clash-router.cjs');
 const PUBLIC_URL = 'https://chatgpt.com/robots.txt';
 const LIMIT_MS = 200, TIMEOUT_MS = 5000, CONCURRENCY = 6;
+const SERVICES = Object.freeze([
+  {name: 'ChatGPT', url: PUBLIC_URL, status: 200},
+  {name: 'Google', url: 'https://www.google.com/generate_204', status: 204},
+  {name: 'GitHub', url: 'https://github.com/robots.txt', status: 200}
+]);
+const PREFLIGHT_LIMIT = 12, SERVICE_TIMEOUT_MS = 7000;
 const NON_PROXY = /^(Direct|Reject|RejectDrop|Pass|Dns|Compatible)$/i;
 const digest = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const readJSON = file => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -65,12 +71,41 @@ function inspect(ctx, proxies, explicitGroup) {
     mainUsesAutomaticGroup: group.now === latencyGroup, testURL: auto.testUrl, candidates,
     aiAliasFollowsMain: alias ? true : null};
 }
-async function measure(api, name, url) {
+async function measure(api, name, url, expectedStatus) {
   try {
-    const result = await api('GET', routeFor(name) + '/delay?url=' + encodeURIComponent(url) + '&timeout=' + TIMEOUT_MS);
+    const started = Date.now();
+    const result = await api('GET', routeFor(name) + '/delay?url=' + encodeURIComponent(url) + '&timeout=' +
+      (expectedStatus ? SERVICE_TIMEOUT_MS : TIMEOUT_MS) + (expectedStatus ? '&expected=' + expectedStatus : ''));
     if (!Number.isFinite(result?.delay) || result.delay <= 0) throw Error('Invalid/zero delay');
+    if (expectedStatus) {
+      // Mihomo may return a nonzero /delay even for a wrong status. Its
+      // per-URL history, unlike the top-level alive flag, records satisfaction.
+      const detail = await api('GET', routeFor(name)), state = detail.extra?.[url], last = state?.history?.at(-1);
+      if (state?.alive !== true || !(last?.delay > 0) || !(Date.parse(last.time) >= started - 1000))
+        throw Error('Expected HTTP status not confirmed by fresh URL-specific history');
+    }
     return {name, region: region(name), delayMs: result.delay, reachable: true};
   } catch { return {name, region: region(name), delayMs: null, reachable: false}; }
+}
+async function assessCandidate(api, candidate, cancelled = () => false) {
+  const rounds = [];
+  for (let round = 0; round < 2; round++) {
+    if (cancelled()) return {...candidate, qualified: false, rounds, reason: 'cancelled'};
+    const services = await Promise.all(SERVICES.map(async service => ({service: service.name,
+      expectedStatus: service.status, ...await measure(api, candidate.name, service.url, service.status)})));
+    rounds.push(services);
+    if (services.some(s => !s.reachable)) return {...candidate, qualified: false, rounds, reason: 'service-unavailable'};
+    if (!round) await new Promise(yes => setTimeout(yes, 150));
+  }
+  const delays = rounds.flat().map(s => s.delayMs);
+  return {...candidate, qualified: true, rounds, scoreMs: Math.max(...delays),
+    meanServiceMs: Math.round(delays.reduce((sum, value) => sum + value, 0) / delays.length)};
+}
+async function probeServices(ctx, api, main, selected, options = {}, probe = publicProbe) {
+  const serviceChecks = await Promise.all(SERVICES.map(async service => ({service: service.name,
+    ...await probe(ctx, api, main, selected, {...options, url: service.url, expectedStatus: service.status})})));
+  return {...serviceChecks[0], serviceChecks,
+    allServicesVerified: serviceChecks.every(p => p.publicEndpointReachable && p.routeVerified)};
 }
 async function pool(items, count, fn) {
   const results = new Array(items.length); let cursor = 0;
@@ -86,13 +121,15 @@ async function freePort() {
   await new Promise((yes, no) => s.close(e => e ? no(e) : yes())); return port;
 }
 async function publicProbe(ctx, api, main, selected, options = {}) {
+  const target = new URL(options.url || PUBLIC_URL), expectedStatus = options.expectedStatus || 200;
+  if (target.protocol !== 'https:' || target.username || target.password) throw Error('Public probe requires unauthenticated HTTPS');
   const config = await api('GET', '/configs'), port = config['mixed-port'] || config.port;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error('An active local HTTP/mixed port is required');
   const sourcePort = await freePort();
   let output = '', done = false, exitCode = null, observed = null, launchFailed = false;
   const child = cp.spawn('curl', ['--silent', '--show-error', '--noproxy', '', '--proxy', 'http://127.0.0.1:' + port,
     '--local-port', String(sourcePort), '--connect-timeout', '6', '--max-time', '12', '--max-filesize', '65536',
-    ...(options.head ? ['--head'] : ['--range', '0-1023']), '--output', os.devNull, '--write-out', '%{json}', PUBLIC_URL], {stdio: ['ignore', 'pipe', 'ignore']});
+    ...(options.head ? ['--head'] : ['--range', '0-1023']), '--output', os.devNull, '--write-out', '%{json}', target.href], {stdio: ['ignore', 'pipe', 'ignore']});
   child.stdout.on('data', b => { if (output.length < 32768) output += b; });
   const closed = new Promise(yes => {
     child.on('error', () => { launchFailed = true; done = true; yes(); });
@@ -101,16 +138,19 @@ async function publicProbe(ctx, api, main, selected, options = {}) {
   try {
     while (!done) {
       const connections = (await api('GET', '/connections')).connections || [];
-      const c = connections.find(c => Number(c.metadata?.sourcePort) === sourcePort && c.metadata?.host === 'chatgpt.com');
+      const c = connections.find(c => Number(c.metadata?.sourcePort) === sourcePort && c.metadata?.host === target.hostname);
       if (c) observed = {rule: c.rule, rulePayload: c.rulePayload, chains: c.chains || []};
       if (!done) await new Promise(yes => setTimeout(yes, 60));
     }
   } finally { if (!done) child.kill(); await closed; }
   let timing = {}; try { timing = JSON.parse(output); } catch {}
-  const publicEndpointReachable = !launchFailed && exitCode === 0 && timing.http_code === 200;
+  // A server honoring our bounded GET Range correctly returns 206. HEAD and
+  // the controller's HEAD-based preflight still require the exact status.
+  const statusAccepted = timing.http_code === expectedStatus || (!options.head && expectedStatus === 200 && timing.http_code === 206);
+  const publicEndpointReachable = !launchFailed && exitCode === 0 && statusAccepted;
   const routeVerified = Boolean(observed && observed.chains.includes(main) && observed.chains.includes(selected) &&
     (!options.via || observed.chains.includes(options.via)) && !observed.chains.includes('DIRECT'));
-  return {url: PUBLIC_URL, publicEndpointReachable, routeVerified, httpStatus: timing.http_code || null,
+  return {url: target.href, expectedStatus, publicEndpointReachable, routeVerified, httpStatus: timing.http_code || null,
     exitCode, localFailure: launchFailed || exitCode === 7,
     tlsMs: Number.isFinite(timing.time_appconnect) ? Math.round(timing.time_appconnect * 1000) : null,
     totalMs: Number.isFinite(timing.time_total) ? Math.round(timing.time_total * 1000) : null,
@@ -145,14 +185,19 @@ async function run(ctx, api, command, options = {}, deps = {}) {
   if (command === 'check') {
     const current = resolve(proxies, plan.main);
     report.current = current;
-    report.probe = await probe(ctx, api, plan.main, current.node, {via: plan.mainUsesAutomaticGroup ? plan.latencyGroup : undefined});
-    report.status = report.probe.publicEndpointReachable && report.probe.routeVerified ? 'public-endpoint-ok' : 'needs-attention';
+    const checked = await probeServices(ctx, api, plan.main, current.node,
+      {via: plan.mainUsesAutomaticGroup ? plan.latencyGroup : undefined}, probe);
+    report.probe = checked.serviceChecks[0]; report.serviceChecks = checked.serviceChecks;
+    report.status = checked.allServicesVerified ? 'public-endpoint-ok' : 'needs-attention';
     return report;
   }
   if (!plan.mainUsesAutomaticGroup) { report.status = 'paused-main-not-automatic'; return report; }
   const onProgress = options.onProgress || (() => {});
-  onProgress({stage: 'testing', total: plan.candidates.length});
-  const measured = await pool(plan.candidates, CONCURRENCY, async c => {
+  const currentNode = resolve(proxies, plan.main).node;
+  const candidates = options.excludeCurrent ? plan.candidates.filter(c => c.name !== currentNode) : plan.candidates;
+  report.excludedCurrentNode = options.excludeCurrent ? currentNode : null;
+  onProgress({stage: 'testing', total: candidates.length});
+  const measured = await pool(candidates, CONCURRENCY, async c => {
     if (cancelled()) return {...c, reachable: false, delayMs: null};
     return measure(api, c.name, plan.testURL);
   });
@@ -160,9 +205,17 @@ async function run(ctx, api, command, options = {}, deps = {}) {
   report.measurements = measured; report.tested = measured.length; report.reachable = ranked.length;
   report.fastest = ranked[0] || null;
   if (cancelled()) { report.status = 'cancelled'; return report; }
-  if (!ranked.length || ranked[0].delayMs >= LIMIT_MS) { report.status = 'no-green-candidate'; return report; }
+  if (!ranked.length) { report.status = 'no-responsive-candidate'; return report; }
+  const shortlist = ranked.slice(0, PREFLIGHT_LIMIT);
+  onProgress({stage: 'qualifying', total: shortlist.length});
+  report.preflight = await pool(shortlist, 2, candidate => (deps.assess || assessCandidate)(api, candidate, cancelled));
+  const qualified = report.preflight.filter(c => c.qualified).sort((a, b) =>
+    a.scoreMs - b.scoreMs || a.meanServiceMs - b.meanServiceMs || a.delayMs - b.delayMs || a.name.localeCompare(b.name));
+  report.qualified = qualified.length; report.preflightLimit = PREFLIGHT_LIMIT; report.best = qualified[0] || null;
+  if (cancelled()) { report.status = 'cancelled'; return report; }
+  if (!report.best) { report.status = 'no-verified-candidate'; return report; }
   if (command === 'plan') { report.status = 'planned'; return report; }
-  const selected = ranked[0].name;
+  const selected = report.best.name;
   const fresh = (await api('GET', '/proxies')).proxies;
   const currentPlan = inspect(ctx, fresh, options.latencyGroup);
   if (fresh[plan.main]?.now !== plan.latencyGroup || currentPlan.main !== plan.main || currentPlan.testURL !== plan.testURL ||
@@ -186,15 +239,17 @@ async function run(ctx, api, command, options = {}, deps = {}) {
         after[plan.latencyGroup]?.now !== selected) throw Error('Main -> automatic -> fixed node hierarchy was not retained');
     inspect(ctx, after, options.latencyGroup);
     report.finalLatency = await measure(api, plan.main, plan.testURL);
-    report.probe = await probe(ctx, api, plan.main, selected, {via: plan.latencyGroup});
+    const checked = await probeServices(ctx, api, plan.main, selected, {via: plan.latencyGroup}, probe);
+    report.probe = checked.serviceChecks[0]; report.serviceChecks = checked.serviceChecks;
     const final = (await api('GET', '/proxies')).proxies;
     if (cancelled() || final[plan.main]?.now !== plan.latencyGroup || final[plan.latencyGroup]?.fixed !== selected ||
         final[plan.latencyGroup]?.now !== selected || hash() !== initialHash)
       throw Error('Cancelled or configuration/selection changed during verification');
     inspect(ctx, final, options.latencyGroup);
-    if (!report.finalLatency.reachable || report.finalLatency.delayMs >= LIMIT_MS ||
-        !report.probe.publicEndpointReachable || !report.probe.routeVerified)
-      throw Error('Latency or public endpoint/connection-chain verification failed');
+    // The subscription's latency URL is a diagnostic, not an availability gate.
+    // A >200ms sample must not discard a node whose real service checks pass.
+    if (!checked.allServicesVerified)
+      throw Error('Public service endpoint/connection-chain verification failed');
     report.selected = selected; report.status = 'recovered'; report.subscriptionUnchanged = true; report.hierarchyPreserved = true;
   } catch (e) {
     report.status = 'verification-failed'; report.failure = e.message;
@@ -239,8 +294,9 @@ async function main(argv, options = {}) {
       if (plan.main !== undo.main || plan.latencyGroup !== undo.group) throw Error('Main/automatic group changed or legacy rollback; stopped');
       result = {command, ...(await restore(api, undo))};
       result.status = result.restored ? 'rolled-back' : 'rollback-skipped';
-    } else result = await run(ctx, api, command, {latencyGroup: opts['--latency-group'],
-      onProgress: p => process.stderr.write(p.stage === 'testing' ? 'Testing ' + p.total + ' non-Hong-Kong nodes…\n' : 'Verifying the selected main node…\n')},
+    } else result = await run(ctx, api, command, {latencyGroup: opts['--latency-group'], excludeCurrent: !!options.excludeCurrent,
+      onProgress: p => process.stderr.write(p.stage === 'testing' ? 'Testing ' + p.total + ' non-Hong-Kong nodes…\n' :
+        p.stage === 'qualifying' ? 'Checking ChatGPT / Google / GitHub on ' + p.total + ' candidates without switching…\n' : 'Verifying the selected main node…\n')},
     {cancelled: () => cancelled, saveUndo: undo => router.writePrivate(undoFile, JSON.stringify(undo, null, 2) + '\n')});
     if(ctx.client==='clash-app'){result.sourceEvidenceKind='controller-observation';if(result.subscriptionUnchanged){delete result.subscriptionUnchanged;result.observedPolicyUnchanged=true;}}
     result.finishedAt = new Date().toISOString();
@@ -259,16 +315,19 @@ function clientLine(r) {
 function summary(r, {includeClient = true} = {}) {
   const labels = {recovered: '自动选择的固定节点已更新，并通过公开连通性验证', planned: '测速预览完成，未切换节点',
     'paused-main-not-automatic': '主组当前未指向自动选择，已暂停，保留你的选择',
-    'public-endpoint-ok': '当前 ChatGPT 公开端点和连接链路正常', 'needs-attention': '当前公开连通性检查未通过',
-    'no-green-candidate': '没有低于 200ms 的可用候选，未切换节点', 'verification-failed': '验证失败，已停止',
+    'public-endpoint-ok': '当前 ChatGPT / Google / GitHub 公开端点和连接链路正常', 'needs-attention': '当前公开连通性检查未通过',
+    'no-verified-candidate': '候选未通过 ChatGPT / Google / GitHub 双轮检测，未切换节点',
+    'no-responsive-candidate': '初筛没有响应的候选，未切换节点', 'verification-failed': '验证失败，已停止',
     cancelled: '已取消', 'rolled-back': '已恢复自动组原固定节点或自动模式', 'rollback-skipped': '当前选择已变化，未覆盖'};
   const lines = [...(includeClient && r.clientName ? [clientLine(r)] : []), labels[r.status] || r.status];
   if (r.tested !== undefined) lines.push('测速：' + r.tested + ' 个非香港节点，' + r.reachable + ' 个有响应');
   if (r.fastest) lines.push('最快：' + r.fastest.name + ' · ' + r.fastest.delayMs + 'ms');
+  if (r.best) lines.push('已验证最佳：' + r.best.name + ' · 三站最慢响应 ' + r.best.scoreMs + 'ms');
   if (r.selected) lines.push('当前主节点：' + r.selected);
   if (r.current) lines.push('当前链路：' + r.current.chain.join(' → '));
   if (r.finalLatency) lines.push('主选择复测：' + (r.finalLatency.delayMs ?? 'timeout') + 'ms');
   if (r.probe) lines.push('ChatGPT：HTTP ' + (r.probe.httpStatus ?? '无响应') + '，TLS ' + (r.probe.tlsMs ?? '?') + 'ms，总计 ' + (r.probe.totalMs ?? '?') + 'ms，实际链路' + (r.probe.routeVerified ? '已核对' : '未确认'));
+  if (r.serviceChecks) for (const p of r.serviceChecks.slice(1)) lines.push(p.service + '：HTTP ' + (p.httpStatus ?? '无响应') + '，实际链路' + (p.routeVerified ? '已核对' : '未确认'));
   if (r.failure) lines.push(r.failure);
   if (r.rollback) lines.push('回退：' + (r.rollback.restored ? '已恢复原选择' : '未覆盖当前选择；' + r.rollback.reason));
   if (r.reportFile) lines.push('报告：' + r.reportFile);
@@ -279,4 +338,4 @@ if (require.main === module) main(process.argv.slice(2), {onClient: r => {if (!p
   console.log(process.argv.includes('--json') ? JSON.stringify(r, null, 2) : summary(r, {includeClient: false}));
   if (!['planned', 'recovered', 'public-endpoint-ok', 'rolled-back'].includes(r.status)) process.exitCode = 1;
 }).catch(e => { console.error(e.message); process.exitCode = 1; });
-module.exports = {isHongKong, region, resolve, inspect, measure, pool, publicProbe, restore, run, argsOf, main, summary};
+module.exports = {SERVICES, PREFLIGHT_LIMIT, assessCandidate, probeServices, isHongKong, region, resolve, inspect, measure, pool, publicProbe, restore, run, argsOf, main, summary};
