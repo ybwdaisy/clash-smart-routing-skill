@@ -15,6 +15,7 @@ async function begin(files,{timeoutMs=180000,extraAgents=[]}={}){
  const entries=[];for(const file of [...new Set(files)]){const original=inspect(file),backup=path.join(dir,'file-'+entries.length);if(original.exists)r.writePrivate(backup,fs.readFileSync(file));entries.push({file,backup,original,expected:original});}
  const agents=[...new Map([...manager.legacy,manager.LABEL].map(label=>({label,file:path.join(os.homedir(),'Library/LaunchAgents',label+'.plist')})).concat(extraAgents).map(a=>[a.label,{...a,loaded:loaded(a.label)}])).values()];
  const selected=r.activeSelection(),fallback=selected.status==='active'&&selected.client==='verge'?selected.root:r.discover().find(root=>path.basename(root)!=='com.follow.clash')||r.resolveConfigDir();
+ if(path.basename(fallback)==='com.hako.network')throw Error('Native Clash setup needs a configured Clash Verge fallback before switching');
  const fallbackApp=selected.status==='active'&&selected.root===fallback?selected.app:null;
  const started=cp.spawnSync('/bin/ps',['-p',String(process.pid),'-o','lstart='],{encoding:'utf8'}).stdout.trim();
  const journal={version:1,phase:'armed',deadline:Date.now()+timeoutMs,workerPid:process.pid,workerStarted:started,entries,agents,fallback,fallbackApp,environmentOwner:c.read('environment-owner.json'),launchd:Object.fromEntries(c.KEYS.map(k=>[k,c.launchctl('getenv',k)])),label:'io.github.clash-smart-routing.proxy-guard-'+path.basename(dir)};
@@ -42,6 +43,9 @@ async function restoreFiles(dir){const j=read(dir),conflicts=[];for(const e of [
 }
 async function restoreVerge(root,app){
  const isFl=path.basename(root)==='com.follow.clash';
+ // Native Clash's VPN can outlive its GUI. Disconnect only its bundle-matched
+ // service before restoring Verge; leave OpenVPN and other services untouched.
+ if(path.basename(root)!=='com.hako.network'){await require('./clash-app-client.cjs').disconnect();cp.spawnSync('/usr/bin/osascript',['-e','tell application \"/Applications/Clash.app\" to quit'],{encoding:'utf8',timeout:5000});}
  const fl=require('./flclash-client.cjs');if(!isFl)try{await fl.quit()}catch{const p=cp.spawnSync('/bin/ps',['-axo','pid=,comm='],{encoding:'utf8'});for(const line of p.stdout.split('\n')){const m=line.trim().match(/^(\d+)\s+(.*)$/);if(m&&m[2].startsWith('/Applications/FlClash.app/Contents/MacOS/'))try{process.kill(Number(m[1]),'SIGTERM')}catch{}}}
  if(isFl)cp.spawnSync('/usr/bin/osascript',['-e','tell application "Clash Verge" to quit'],{encoding:'utf8',timeout:8000});
  cp.spawnSync('/usr/bin/open',['-a',app||(isFl?'/Applications/FlClash.app':'/Applications/Clash Verge.app')],{encoding:'utf8',timeout:5000});

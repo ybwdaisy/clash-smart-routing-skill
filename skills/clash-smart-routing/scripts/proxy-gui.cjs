@@ -14,9 +14,9 @@ async function probe(){
   for(let i=0;i<150;i++){if(fs.existsSync(output)){
    const result=JSON.parse(fs.readFileSync(output,'utf8')),expected=c.variables(state);
    const environmentMatches=c.KEYS.every(k=>(result.environment[k]||null)===expected[k]);
-   const ok=result.httpStatus===200&&environmentMatches&&state.systemProxy.matches;
+   const ok=result.httpStatus===200&&environmentMatches&&c.guiReady(state);
    if(!ok)process.exitCode=1;
-   return {ok,clientName:state.clientName,systemProxyMatches:state.systemProxy.matches,environmentMatches,httpStatus:result.httpStatus,elapsedMs:result.elapsedMs,error:result.error||null,scope:'New native URLSession process in GUI launchd domain; no account login tested'};
+   return {ok,transport:state.transport||'system-proxy',clientName:state.clientName,systemProxyMatches:state.systemProxy.matches,environmentMatches,httpStatus:result.httpStatus,elapsedMs:result.elapsedMs,error:result.error||null,scope:'New native URLSession process in GUI launchd domain; no account login tested'};
   }await pause(200)}throw Error('Native GUI probe timed out');
  }finally{cp.spawnSync('/bin/launchctl',['bootout','gui/'+process.getuid()+'/'+label],{encoding:'utf8',timeout:5000});fs.rmSync(dir,{recursive:true,force:true})}
 }

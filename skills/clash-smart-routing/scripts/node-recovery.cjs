@@ -135,6 +135,8 @@ async function restore(api, undo) {
 async function run(ctx, api, command, options = {}, deps = {}) {
   const probe = deps.probe || publicProbe, hash = deps.hash || (() => digest(ctx.subscriptionFile));
   const saveUndo = deps.saveUndo || (() => {}), cancelled = deps.cancelled || (() => false);
+  // Native App policy is an API observation, refreshed before its consistency snapshot.
+  if(ctx.client==='clash-app')await api('GET','/proxies');
   const initialHash = hash(), proxies = (await api('GET', '/proxies')).proxies;
   const plan = inspect(ctx, proxies, options.latencyGroup);
   const report = {version: 1, command, startedAt: new Date().toISOString(), ...plan, greenThresholdMs: LIMIT_MS,
@@ -218,7 +220,7 @@ async function main(argv, options = {}) {
   const following = (process.platform === 'darwin' && !opts['--config-dir']) || process.env.CLASH_NET_FOLLOW_ACTIVE === '1';
   const ctx = router.load(router.resolveConfigDir(opts['--config-dir'])), api = router.controller(ctx,
     {followActive: following}), latest = path.join(ctx.stateDir, 'node-recovery-latest.json');
-  const info = {client: ctx.client, clientName: ctx.client === 'flclash' ? 'FlClash' : 'Clash Verge',
+  const info = {client: ctx.client, clientName: ctx.client === 'flclash' ? 'FlClash' : ctx.client==='clash-app'?'Clash':'Clash Verge',
     selectionMode: following ? 'automatic' : opts['--config-dir'] ? 'fixed' : 'saved', configDirectory: ctx.root};
   options.onClient?.(info);
   if (command === 'status') return {...readJSON(latest), ...info};
@@ -240,6 +242,7 @@ async function main(argv, options = {}) {
     } else result = await run(ctx, api, command, {latencyGroup: opts['--latency-group'],
       onProgress: p => process.stderr.write(p.stage === 'testing' ? 'Testing ' + p.total + ' non-Hong-Kong nodes…\n' : 'Verifying the selected main node…\n')},
     {cancelled: () => cancelled, saveUndo: undo => router.writePrivate(undoFile, JSON.stringify(undo, null, 2) + '\n')});
+    if(ctx.client==='clash-app'){result.sourceEvidenceKind='controller-observation';if(result.subscriptionUnchanged){delete result.subscriptionUnchanged;result.observedPolicyUnchanged=true;}}
     result.finishedAt = new Date().toISOString();
     Object.assign(result, info);
     router.writePrivate(latest, JSON.stringify(result, null, 2) + '\n');
