@@ -73,7 +73,9 @@ async function main(argv){
   const ctx=load(resolveConfigDir(argv.length?argv[1]:undefined)),api=controller(ctx),port=ctx.config['mixed-port']||ctx.config.port,proxy=port?'http://127.0.0.1:'+port:null;
   await api('GET','/version');
   const ip=ranges(cached(ctx,'geoip/cn','cn-ip.list',proxy)),host=domains(cached(ctx,'geosite/cn','cn-domain.list',proxy));
-  const active=await api('GET','/connections');return summarize(active.connections||[],ip,host,ctx.subscription.rules||[]);
+  const active=await api('GET','/connections'),report=summarize(active.connections||[],ip,host,ctx.subscription.rules||[]);
+  if(ctx.client==='clash-app'){report.originalRejectRulesAfterOverlay=null;report.sourceEvidenceKind='controller-observation';report.sourceLimitation='Native subscription source is not readable; original-source REJECT overlap is unknown';}
+  return report;
 }
 if(require.main===module)main(process.argv.slice(2)).then(r=>console.log(JSON.stringify(r,null,2))).catch(e=>{console.error(e.message);process.exitCode=1;});
 module.exports={main,address,ranges,contains,domains,summarize,cached,site};

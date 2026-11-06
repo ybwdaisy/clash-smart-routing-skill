@@ -1,6 +1,6 @@
 # macOS all-in-one proxy
 
-Use this reference for terminal/GUI proxy integration, automatic App following, or upgrading an old `clash-net` installation. Public command: **proxy**. Skill/repository names stay unchanged. Node.js 18+, zsh, and one configured Clash Verge/Rev or FlClash App are required. Native events and GUI verification use the system Swift compiler when available; without it the manager reports `timer-fallback` and remains functional.
+Use this reference for terminal/GUI proxy integration, automatic App following, or upgrading an old `clash-net` installation. Public command: **proxy**. Skill/repository names stay unchanged. Node.js 18+, zsh, and one configured Clash Verge/Rev or FlClash App are required. The separately paired native Clash App uses the [native VPN adapter](clash-app.md), with explicit VPN permission and no file-based learning. Native events and GUI verification use the system Swift compiler when available; without it the manager reports `timer-fallback` and remains functional.
 
 ## Installation and update
 
@@ -15,7 +15,7 @@ proxy check
 proxy check --gui
 ```
 
-`setup` validates or installs the routing overlay for the current client, enables its native system-proxy switch if necessary, preserves existing no_proxy entries, installs a small zsh loader and one user LaunchAgent, and retires the two old automatic follower services plus the managed `clash-net` executable. It refuses unrelated command/loader/service collisions. It does not enable TUN, change native ports, or create a relay. Configure each additional client's overlay once with `proxy config apply` (FlClash: `--activate`); afterward normal App switches need no binding commands. For a new subscription, use `proxy config verify` and apply only if missing/stale.
+`setup` validates or installs the routing overlay for the current client, enables its native system-proxy switch if necessary, preserves existing no_proxy entries, installs a small zsh loader and one user LaunchAgent, and retires the two old automatic follower services plus the managed `clash-net` executable. It refuses unrelated command/loader/service collisions. For Verge/FlClash it does not enable TUN, change native ports, or create a relay. Native Clash requires its explicitly authorized VPN; configure any user-requested shared port through its native listener override before connecting. Discovery continues to read the actual listener ports. Configure each additional client's overlay once with `proxy config apply` (FlClash: `--activate`); afterward normal App switches need no binding commands. For a new subscription, use `proxy config verify` and apply only if missing/stale.
 
 An independent temporary LaunchAgent protects setup. Its private journal saves affected files, file modes, prior services and launchd variables. Failure/deadline quits FlClash and restores Clash Verge, or the original client if Verge is unavailable. Setup commits only after actual public-route and, when the native helper is available, GUI probes pass. Fallback also verifies controller/public reachability and records the outcome locally. This cannot guarantee recovery from OS shutdown or an unavailable subscription. File restoration uses compare-and-swap: later user edits are reported instead of overwritten. Routing overlay backups/rollback remain client-specific.
 
@@ -33,7 +33,7 @@ Re-run setup after updating skill files. Existing terminals need the source comm
 | `proxy off` | Sticky opt-out in this terminal, including child shells, until `proxy on`; GUI and other terminals continue |
 | `proxy status` / `proxy doctor --json` | Current App, native ports, shell/system/launchd state, event mode, worker reports |
 | `proxy check` | Check current ChatGPT public connectivity and route, no node change |
-| `proxy check --gui` | Launch a fresh native URLSession process in GUI launchd domain; verify inherited variables and system-proxy request |
+| `proxy check --gui` | Launch a fresh native URLSession process in GUI launchd domain; verify inherited variables and system-proxy/native-VPN request |
 | `proxy recover` / `proxy plan` / `proxy rollback` | Existing automatic-group recovery, measurement preview, node rollback |
 | `proxy auto on\|off\|status` | Toggle/report recovery worker without stopping environment integration |
 | `proxy monitor on\|off\|status` | Toggle/report bounded routing-learning worker |
@@ -51,7 +51,7 @@ Bare `proxy` enables the terminal; recovery is explicitly `proxy recover`.
 
 One persistent manager owns environment publication and both workers. A native NSWorkspace helper listens for App launch/termination; filesystem events track relevant settings/config changes. Events debounce 250ms. A 15-second fallback catches missed events. During a newly started App's readiness window only, polling accelerates to 250ms for at most 15 seconds. Bundle IDs are cached by Info.plist mtime. Unchanged shell/environment values are not rewritten; launchd ownership is audited once per minute. Health and learning requests remain once per minute with existing cooldowns and budgets, not every discovery tick.
 
-Selection requires exactly one recognized GUI process and matching bundle ID/config directory. Live controller ports must have listeners owned by that App. Both Apps or neither App pauses workers and clears managed environment values; no client is guessed from a shared port or stale core. Native Apps own their system-proxy switch; if closing a client leaves stale OS proxy state, status exposes the mismatch rather than overwriting unrelated network settings. Quit the old App completely before opening the other; the manager does not launch/quit Apps during routine following.
+Selection requires exactly one recognized App and matching bundle ID/config directory. Native Clash also counts its packet-tunnel extension after GUI exit; disconnect that VPN before switching clients. Live controller ports must have listeners owned by that App. Both Apps or neither App pauses workers and clears managed environment values; no client is guessed from a shared port or stale core. Native Apps own their system-proxy switch; if closing a client leaves stale OS proxy state, status exposes the mismatch rather than overwriting unrelated network settings. Quit the old App completely before opening the other; the manager does not launch/quit Apps during routine following.
 
 Shell prompt/preexec hooks read the small shared env file without spawning discovery commands. Preexec tests the cached local port; if closed it discovers fresh state before running the command. `proxy on` always discovers fresh state. Manager operations strip inherited proxy variables to avoid stale-proxy loops.
 

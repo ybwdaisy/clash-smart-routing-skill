@@ -1,6 +1,6 @@
 ---
 name: clash-smart-routing
-description: Configure traffic-saving routing for Clash Verge/Rev and macOS FlClash, diagnose proxy waste, recover Codex connectivity inside the existing automatic group on demand or with an explicitly enabled watchdog, unify macOS terminal/GUI integration through proxy, or export Shadowrocket configs preserving original rules and push settings. Keep subscription sources intact.
+description: Configure traffic-saving routing for Clash Verge/Rev, macOS FlClash and native Clash (com.hako.network), diagnose proxy waste, recover Codex connectivity inside the existing automatic group on demand or with an explicitly enabled watchdog, unify macOS terminal/GUI integration through proxy, or export Shadowrocket configs preserving original rules and push settings. Keep subscription sources intact.
 ---
 
 # Clash Smart Routing
@@ -12,6 +12,8 @@ For **all-in-one macOS setup, terminal/GUI proxy, App following, or upgrading th
 For an explicitly requested **clean rebuild that discards legacy proxy settings**, read [fresh setup](references/proxy-fresh.md) and use `proxy-cli.cjs setup --fresh`. This macOS Verge/Rev-only mode snapshots and cleans legacy shell/services and client overrides before rebuilding, preserving subscriptions and unrelated settings. Ordinary setup still preserves old customizations; never turn a diagnosis or ordinary update into a reset.
 
 For **macOS FlClash**, read [native integration and client selection](references/flclash.md) before applying. Its SQLite profile registry, native scripts, preference/controller setup and kernel validation differ from Verge. Do not edit generated runtime YAML as the persistent solution or invoke FlClashCore with Mihomo CLI flags.
+
+For the **native macOS Clash App (`com.hako.network`)**, read [native VPN integration](references/clash-app.md). This is a separate adapter, not a port-based alias for Verge. It requires explicit authorization for its native VPN, authenticated loopback pairing, and importing the generated script through the App UI. Runtime config reload and file-based learning are unavailable; do not open its TCC-protected App Group. Keep native ports unless the user explicitly requests a shared port.
 
 For **Shadowrocket**, read [remote configuration, private export and device verification](references/shadowrocket.md). A reviewed public remote `.conf` is automatically rebuilt by GitHub Actions after skill changes. Existing private settings still require the separate merger or a local extension. The Clash install/controller workflow below does not apply; publication is not proof of phone activation or background updates.
 
@@ -44,7 +46,7 @@ node <skill-dir>/scripts/clash-router.cjs apply
 node <skill-dir>/scripts/clash-router.cjs verify
 ```
 
-The helper detects common macOS, Windows and Linux Clash Verge directories and macOS FlClash. On macOS, commands without `--config-dir` identify the single running desktop app by its executable and bundle ID, then match its configuration directory. Ignore old saved selections in this mode. Both clients running, neither running, ambiguous metadata or an unconfigured app cause a pause/error; never guess from the shared proxy port or an idle core process. `config active` shows this selection. Explicit `--config-dir` remains available for diagnosis; other platforms retain explicit/saved selection. `--core <mihomo-binary>` resolves an undiscovered Verge kernel.
+The helper detects common macOS, Windows and Linux Clash Verge directories, macOS FlClash, and a previously paired native Clash App. Native Clash is identified by its bundle ID and GUI/packet-tunnel executable; a surviving tunnel counts as active even after the GUI exits. On macOS, commands without `--config-dir` identify the single running desktop app by its executable and bundle ID, then match its configuration directory. Ignore old saved selections in this mode. Both clients running, neither running, ambiguous metadata or an unconfigured app cause a pause/error; never guess from the shared proxy port or an idle core process. `config active` shows this selection. Explicit `--config-dir` remains available for diagnosis; other platforms retain explicit/saved selection. `--core <mihomo-binary>` resolves an undiscovered Verge kernel.
 
 For live tests with multiple desktop proxy clients installed, quit the other client first and confirm its user kernel exited. Test only one client at a time, then verify the system proxy still points to the intended client's active listener; quitting the other client may clear system proxy settings. A saved CLI binding alone does not prevent two apps from changing macOS proxy settings.
 
@@ -62,7 +64,7 @@ Preserve existing authorization. An explicit request to configure this device pe
 
 - Run `node <skill-dir>/scripts/probe.cjs` for eleven bounded routing probes, including generic China classification for Douyin/Bilibili/WeChat and a numeric China-IP target; inspect its `passed` and per-service evidence. It uses small public requests and a temporary loopback server, and does not test account login or transfer large files.
 - Require successful kernel validation and `verify`; inspect all rule providers having nonzero rule counts.
-- Confirm the subscription file hash and original rule order are unchanged.
+- Confirm the subscription file hash and original rule order are unchanged for file-backed clients. Native Clash exposes only controller observations: verify original runtime-rule order, record `sourceEvidenceKind: controller-observation`, and never claim a subscription-file hash was checked.
 - Generate a few small requests through the local proxy: ChatGPT/Claude, Baidu/iCloud or Apple download metadata, and an intranet/private-IP target. Inspect Mihomo `/connections` or `/rules` to prove the matched policy and chain. A 401/403 alone does not prove the route or a working logged-in session. Do not download large test files or call paid AI APIs.
 - Run `verify` again after a subscription refresh/restart when feasible, checking persistence of the global extension. Keep node/region availability separate from the routing guarantee.
 - If domestic traffic still uses the proxy, inspect its domain/IP, provider membership and actual matching rule. Check whether an older policy placed domestic DIRECT behind the subscription. Fix the overlay or stale data; do not edit the subscription source or add a one-off app exemption. Existing long-lived connections may need to reconnect to pick up the new policy.

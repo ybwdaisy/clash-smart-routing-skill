@@ -10,11 +10,12 @@ async function status(){
 }
 function summary(s,brief=false){const lines=['当前客户端：'+(s.clientName||'未确定')+'（自动跟随）'];
  if(s.phase==='ready')lines.push('代理端口：HTTP '+s.ports.http+(s.ports.socks?' / SOCKS '+s.ports.socks:''));else lines.push('状态：'+s.phase);
- lines.push('当前终端：'+(s.shell.optOut?'已关闭':s.shell.matches?'已同步':'未同步；运行 proxy on'), 'GUI 系统代理：'+(s.systemProxy?.matches?'已同步':'未就绪'), '新 GUI 进程环境：'+(s.launchd.matches?'已同步':'未同步'));
+ lines.push('当前终端：'+(s.shell.optOut?'已关闭':s.shell.matches?'已同步':'未同步；运行 proxy on'), 'GUI 网络：'+(s.transport==='native-vpn'?(s.vpn?.connected?'原生 VPN 已连接':'原生 VPN 未连接'):(s.systemProxy?.matches?'系统代理已同步':'系统代理未就绪')), '新 GUI 进程环境：'+(s.launchd.matches?'已同步':'未同步'));
  if(!brief)lines.push('后台管理：'+(s.manager.running?'运行中':'未运行')+'；事件模式：'+s.eventMode,'旧 GUI/常驻进程不会被修改环境；必要时重新启动该 App。');return lines.join('\n');}
 async function feature(kind,args){const action=args[0]||'status';if(!['on','off','status'].includes(action))throw Error('Use on|off|status');
  if(action!=='status'){const settings=c.settings();settings[kind==='recovery'?'recoveryEnabled':'learningEnabled']=action==='on';c.write('settings.json',settings);}
- const state=c.read('runtime.json');return {feature:kind,followingApp:state?.clientName||null,enabled:c.settings()[kind==='recovery'?'recoveryEnabled':'learningEnabled'],worker:state?.workers?.[kind]||null,report:workerReport(state,kind)};}
+ const state=c.read('runtime.json'),requestedEnabled=c.settings()[kind==='recovery'?'recoveryEnabled':'learningEnabled'],unavailable=kind==='learning'&&state?.capabilities?.learning===false;
+ return {feature:kind,followingApp:state?.clientName||null,enabled:requestedEnabled&&!unavailable,requestedEnabled,reason:unavailable?'native-app-managed-configuration':null,worker:state?.workers?.[kind]||null,report:workerReport(state,kind)};}
 async function main(argv){const args=[...argv],command=args.shift()||'on';
  if(['help','--help','-h'].includes(command))return 'proxy [on|off|status|doctor|check|recover|auto|monitor|config|audit|exec|setup|uninstall]\nBare proxy enables this terminal. proxy off affects this terminal only.\nproxy setup --fresh rebuilds legacy proxy configuration after backup (Verge/Rev); add --dry-run to preview.\nproxy setup --dry-run previews installation; proxy setup --rollback restores the last transaction.\nproxy check --gui probes a new native process using system proxy and launchd environment.';
  if(command==='setup'){if(args.some(x=>!['--rollback','--fresh','--dry-run'].includes(x))||args.includes('--rollback')&&args.length!==1)throw Error('Use setup [--fresh] [--dry-run] or setup --rollback');return args.includes('--rollback')?require('./proxy-install.cjs').rollback():require('./proxy-install.cjs').setup({dryRun:args.includes('--dry-run'),fresh:args.includes('--fresh')});}
@@ -34,6 +35,7 @@ async function main(argv){const args=[...argv],command=args.shift()||'on';
  }
  if(command==='auto')return feature('recovery',args);
  if(command==='monitor')return feature('learning',args);
+ if(command==='config'&&args[0]==='pair-clash-app'){const opts={};args.shift();while(args.length){const k=args.shift();if(k==='--allow-native-vpn'){opts.allowNativeVpn=true;continue}if(!['--controller','--secret-file'].includes(k)||!args.length)throw Error('Use config pair-clash-app --controller <local URL> --secret-file <private file> --allow-native-vpn');opts[k==='--controller'?'controller':'secretFile']=args.shift();}return require('./clash-app-client.cjs').register(opts);}
  if(command==='config')return r.main(args);
  if(['recover','plan','rollback','check'].includes(command)){
   const result=await require('./node-recovery.cjs').main([command,...args]);

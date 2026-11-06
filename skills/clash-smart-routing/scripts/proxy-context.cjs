@@ -27,7 +27,7 @@ function ownsListener(port,selection){
  if(ids.status!==0)return false;
  const pids=[...new Set(ids.stdout.trim().split(/\s+/).filter(x=>/^\d+$/.test(x)))];if(!pids.length)return false;
  const processes=cp.spawnSync('/bin/ps',['-p',pids.join(','),'-o','comm='],{encoding:'utf8',timeout:2000});
- return processes.status===0&&processes.stdout.split('\n').some(x=>x.trim().startsWith(selection.app+'/Contents/MacOS/'));
+ return processes.status===0&&processes.stdout.split('\n').some(x=>(x.trim().startsWith(selection.app+'/Contents/MacOS/')||selection.client==='clash-app'&&x.trim()===selection.app+'/Contents/PlugIns/ClashmacOSExtension.appex/Contents/MacOS/ClashmacOSExtension'));
 }
 function systemMatches(proxy,ports){return ['http','https'].every(k=>proxy[k]?.enabled&&['127.0.0.1','localhost','::1'].includes(proxy[k].host)&&proxy[k].port===ports.http)&&(!ports.socks||(proxy.socks?.enabled&&proxy.socks.port===ports.socks&&['127.0.0.1','localhost','::1'].includes(proxy.socks.host)));}
 async function discover(deps={}){
@@ -36,13 +36,15 @@ async function discover(deps={}){
  try{
   const ctx=(deps.load||router.load)(selection.root),api=(deps.api||router.controller)(ctx,{followActive:true,timeoutMs:1500});
   const live=await api('GET','/configs');
+  if(ctx.client==='clash-app'&&!ctx.config.rules?.length)await api('GET','/proxies');
   const ports={http:Number(live['mixed-port']||live.port||0),socks:Number(live['mixed-port']||live['socks-port']||0)};
   if(!Number.isInteger(ports.http)||ports.http<=0||ports.http>65535)throw Error('No supported HTTP listener');
   const owns=deps.owns||ownsListener,listen=deps.listener||ready.listener;
   for(const port of new Set([ports.http,ports.socks].filter(Boolean)))if(!await listen(port)||!await owns(port,selection))throw Error('Listener is not owned by the active client');
   const proxy=(deps.systemProxy||ready.systemProxy)();
   const generation=crypto.createHash('sha256').update(JSON.stringify([selection.root,selection.pid,ports])).digest('hex').slice(0,16);
-  return {phase:'ready',selection,clientName:selection.appName||path.basename(selection.app,'.app'),ports,generation,systemProxy:{matches:systemMatches(proxy,ports)},checkedAt:Date.now()};
+  const vpn=ctx.client==='clash-app'?(deps.vpnStatus||require('./clash-app-client.cjs').vpnStatus)():null;if(vpn&&!vpn.connected)throw Error('Clash native VPN is not connected');
+  return {phase:'ready',transport:vpn?'native-vpn':'system-proxy',vpn,capabilities:ctx.capabilities,selection,clientName:selection.appName||path.basename(selection.app,'.app'),ports,generation,systemProxy:{matches:systemMatches(proxy,ports)},checkedAt:Date.now()};
  }catch(e){return {phase:'starting',selection,reason:e.message,checkedAt:Date.now()};}
 }
 function launchctl(action,key,value){
@@ -65,4 +67,5 @@ function syncLaunchd(values,ops=launchctl,ownership=read('environment-owner.json
 function restoreLaunchd(ops=launchctl,ownership=read('environment-owner.json')){
  if(!ownership)return;for(const key of KEYS)if(ops('getenv',key)===ownership.last[key])ops(ownership.baseline[key]===null?'unsetenv':'setenv',key,ownership.baseline[key]===null?undefined:ownership.baseline[key]);
 }
-module.exports={defaults,KEYS,base,file,read,write,cleanEnv,settings,noProxy,variables,quote,shell,discover,ownsListener,systemMatches,launchctl,syncLaunchd,restoreLaunchd};
+function guiReady(state){return state.transport==='native-vpn'?state.vpn?.connected===true:state.systemProxy?.matches===true;}
+module.exports={guiReady,defaults,KEYS,base,file,read,write,cleanEnv,settings,noProxy,variables,quote,shell,discover,ownsListener,systemMatches,launchctl,syncLaunchd,restoreLaunchd};

@@ -4,6 +4,8 @@ const metadata = new Map();
 function runningApps(text) {
   const apps = new Map();
   for (const line of text.split('\n')) {
+    const native=line.trim().match(/^(?:(\d+)\s+)?(.*\/Clash\.app)\/Contents\/(?:MacOS\/Clash|PlugIns\/ClashmacOSExtension\.appex\/Contents\/MacOS\/ClashmacOSExtension)$/);
+    if(native){const prior=apps.get(native[2]),main=line.endsWith('/MacOS/Clash');if(!prior||main)apps.set(native[2],{app:native[2],pid:Number(native[1])||null,client:'clash-app'});continue;}
     const match = line.trim().match(/^(?:(\d+)\s+)?(.*\/(FlClash|Clash Verge(?: Rev)?)\.app)\/Contents\/MacOS\/(FlClash|clash-verge)$/);
     if (match && ((match[3] === 'FlClash') === (match[4] === 'FlClash')))
       apps.set(match[2], {app: match[2], pid:Number(match[1])||null, client: match[3] === 'FlClash' ? 'flclash' : 'verge'});
@@ -14,6 +16,7 @@ function select(roots, apps, bundleId) {
   if (!apps.length) return {status: 'paused-no-client'};
   if (apps.length !== 1) return {status: 'paused-multiple-clients'};
   const app = apps[0], identifier = bundleId(app.app);
+  if(app.client==='clash-app'&&identifier!=='com.hako.network')return {status:'paused-unconfigured-client',client:app.client};
   const matches = roots.filter(root => path.basename(root) === identifier);
   if (matches.length !== 1) return {status: 'paused-unconfigured-client', client: app.client};
   return {status: 'active', client: app.client, appName: path.basename(app.app, '.app'), pid:app.pid, root: matches[0], app: app.app};

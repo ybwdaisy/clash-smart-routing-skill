@@ -38,10 +38,12 @@ function discover() {
       if ((fs.existsSync(path.join(root, 'profiles/Script.js')) && fs.existsSync(path.join(root, 'clash-verge.yaml'))) || flclash.isClient(root)) found.push(fs.realpathSync(root));
     }
   }
+  const native=require('./clash-app-client.cjs');if(native.isClient(native.root()))found.push(native.root());
   return [...new Set(found)];
 }
 function load(root) {
   root = fs.realpathSync(root);
+  if(require('./clash-app-client.cjs').isClient(root))return require('./clash-app-client.cjs').load(root);
   if (flclash.isClient(root)) return flclash.load(root);
   const scriptFile = path.join(root, 'profiles/Script.js');
   const runtimeFile = path.join(root, 'clash-verge.yaml');
@@ -79,6 +81,7 @@ function resolveConfigDir(explicit, deps = {}) {
   return roots[0];
 }
 function controller(ctx, options = {}) {
+  if(ctx.client==='clash-app')return require('./clash-app-client.cjs').controller(ctx,options);
   const base = fs.existsSync(path.join(ctx.root, 'config.yaml')) ? read(path.join(ctx.root, 'config.yaml')) : {};
   const socket = ctx.config['external-controller-unix'] ?? base['external-controller-unix'];
   const useSocket = socket && path.isAbsolute(socket) && fs.existsSync(socket) && fs.statSync(socket).isSocket();
@@ -291,7 +294,7 @@ function argumentsOf(argv) {
   while (argv.length) {
     const key = argv.shift();
     if (['--activate', '--adopt-hierarchy'].includes(key)) { args[key.slice(2)] = true; continue; }
-    if (!/^--(config-dir|core|settings-file)$/.test(key) || !argv.length) throw Error('Unknown or missing argument: ' + key);
+    if (!/^--(config-dir|core|settings-file|previous-script)$/.test(key) || !argv.length) throw Error('Unknown or missing argument: ' + key);
     args[key.slice(2)] = argv.shift();
   }
   return {command, args};
@@ -302,6 +305,8 @@ async function main(argv) {
   if (command === 'active') return {mode: 'automatic', ...activeSelection()};
   const ctx = load(resolveConfigDir(args['config-dir']));
   if (command === 'select') return selectClient(ctx.root);
+  if(ctx.client==='clash-app'&&['plan','apply','rollback'].includes(command))return require('./clash-app-client.cjs').main(command,ctx,args);
+  if(args['previous-script'])throw Error('--previous-script is native Clash-specific');
   if (ctx.client === 'flclash' && ['plan', 'apply', 'rollback'].includes(command)) return flclash.main(command, ctx, args);
   if (args.activate || args['adopt-hierarchy']) throw Error('Activation/hierarchy options are FlClash-specific');
   const api = controller(ctx, {followActive: (process.platform === 'darwin' && !args['config-dir']) || process.env.CLASH_NET_FOLLOW_ACTIVE === '1'});

@@ -2,7 +2,7 @@
 
 让国内下载、视频和内网优先直连，ChatGPT、Claude、GitHub 保持代理。使用维护中的域名/IP 分类，无需逐个添加网站。
 
-支持 **Clash Verge / Rev（Mihomo）**、**macOS FlClash**，以及 **Shadowrocket 配置生成**。需自备节点订阅，支持不同厂商；原订阅文件保留，本地分流规则优先执行。
+支持 **Clash Verge / Rev（Mihomo）**、**macOS FlClash**、**原生 macOS Clash（`com.hako.network`，试验适配）**，以及 **Shadowrocket 配置生成**。需自备节点订阅，支持不同厂商；原订阅文件保留，本地分流规则优先执行。
 
 ## 用 AI 助手配置
 
@@ -46,7 +46,7 @@ proxy audit              # 查看当前代理大流量
 proxy config verify      # 核验分流规则
 ```
 
-保留「主组 → 自动选择 → 固定节点」习惯，AI 跟随主界面；恢复候选排除香港，失败回退原节点。安装失败由独立保护进程恢复 Clash Verge。两款 App 同时开或都关闭时暂停，不猜测客户端。GUI 使用系统代理；`launchctl` 环境只影响新进程，已运行 App 必要时需重启。默认不开 TUN，无法接管忽略系统代理的 App。
+保留「主组 → 自动选择 → 固定节点」习惯，AI 跟随主界面；恢复候选排除香港，失败回退原节点。安装失败由独立保护进程恢复 Clash Verge。两款 App 同时开或都关闭时暂停，不猜测客户端。GUI 使用系统代理；`launchctl` 环境只影响新进程，已运行 App 必要时需重启。Verge/FlClash 默认不开 TUN，无法接管忽略系统代理的 App；原生 Clash 是需单独授权的 VPN 模式。
 
 更新 Skill 后重跑 `setup`。`proxy setup --rollback` 回退上次集成，`proxy uninstall` 恢复原终端/后台配置，私有备份保留。旧 `clash-net` 命令和两个旧后台启动项会在备份后迁移。详见 [proxy 使用与边界](skills/clash-smart-routing/references/proxy.md)。
 
@@ -68,6 +68,8 @@ node skills/clash-smart-routing/scripts/clash-router.cjs plan
 node skills/clash-smart-routing/scripts/clash-router.cjs apply
 node skills/clash-smart-routing/scripts/clash-router.cjs verify
 ```
+
+原生 Clash 需首次授权 VPN、配对本机控制接口，并通过 App 导入覆写脚本，详见 [Clash 原生适配](skills/clash-smart-routing/references/clash-app.md)。它使用原生 VPN，暂不支持自动学习和 `--fresh`。首次需核验实际 ChatGPT 连通性，测速低延迟不代表 AI 可用；失败保持使用 Verge。已有配置依赖同一端口时，先在 App 中统一端口，再由 `proxy` 读取实际值。
 
 FlClash 原生脚本适配和首次启用说明见 [FlClash 文档](skills/clash-smart-routing/references/flclash.md)。分类数据每天刷新；[分流核验](skills/clash-smart-routing/SKILL.md)与[节点恢复](skills/clash-smart-routing/references/node-recovery.md)说明保留了具体约束。
 

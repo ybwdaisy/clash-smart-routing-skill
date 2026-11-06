@@ -42,9 +42,9 @@ async function setup({dryRun=false,fresh=false,platform=process.platform}={}){
    if(ready?.phase!=='ready'||!ready.systemProxy?.matches)throw Error('Fresh client did not become ready');
   }
   const ctx=r.load(selected.root),api=r.controller(ctx,{timeoutMs:2000});
-  let apply=false;try{await r.verify(ctx,api)}catch{apply=true}
+  let apply=false;try{await r.verify(ctx,api)}catch(e){if(ctx.client==='clash-app')throw Error('Import the generated routing script in native Clash and reconnect before setup: '+e.message);apply=true}
   const clientSettings=path.join(ctx.stateDir,'settings.json'),saved=fs.existsSync(clientSettings)?JSON.parse(fs.readFileSync(clientSettings,'utf8')):{};
-  const enableLearning=c.settings().learningEnabled&&(!saved.monitorEnabled||!ctx.config['rule-providers']?.['smart-routing-learned']);
+  const enableLearning=ctx.capabilities?.learning!==false&&c.settings().learningEnabled&&(!saved.monitorEnabled||!ctx.config['rule-providers']?.['smart-routing-learned']);
   if(enableLearning)c.write('setup-routing.json',{monitorEnabled:true});
   if(fresh){
    if(JSON.stringify(ctx.config.rules||[])!==JSON.stringify(ctx.subscription.rules||[]))throw Error('Original subscription rules were not restored by native client');
@@ -52,7 +52,7 @@ async function setup({dryRun=false,fresh=false,platform=process.platform}={}){
   }else if(apply||enableLearning)await r.main(['apply','--config-dir',selected.root,...(ctx.client==='flclash'?['--activate']:[]),...(enableLearning?['--settings-file',c.file('setup-routing.json')]:[])]);
   if(r.activeSelection().root!==selected.root)throw Error('Client changed during setup');
   const initial=await c.discover();if(initial.phase!=='ready')throw Error('Client proxy listener is not ready');
-  if(!initial.systemProxy.matches){await require('./proxy-system.cjs').enable(selected,transaction);const ready=await c.discover();if(!ready.systemProxy?.matches)throw Error('Native system proxy did not become ready');}
+  if(!c.guiReady(initial)){await require('./proxy-system.cjs').enable(selected,transaction);const ready=await c.discover();if(!ready.systemProxy?.matches)throw Error('Native system proxy did not become ready');}
   if(!fs.existsSync(c.file('settings.json')))c.write('settings.json',{...c.settings(),noProxy:[...new Set([...c.settings().noProxy,...legacyNoProxy(oldLoader)])]});
   const current=Object.fromEntries(c.KEYS.map(k=>[k,c.launchctl('getenv',k)])),owner=c.read('environment-owner.json');
   c.write('environment-owner.json',{baseline:owner?.baseline||current,last:current});

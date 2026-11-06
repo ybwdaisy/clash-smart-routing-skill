@@ -51,7 +51,7 @@ async function run(){
  const stopSignal=()=>{stopping=true;trigger()};process.on('SIGTERM',stopSignal);process.on('SIGINT',stopSignal);
  const monitor=require('./routing-monitor.cjs');
  const workers=Object.fromEntries([['recovery','node-watchdog.cjs'],['learning','routing-monitor.cjs']].map(([kind,script])=>[kind,new follow.Follower({
-  select:()=>state.phase==='ready'&&context.settings()[kind==='recovery'?'recoveryEnabled':'learningEnabled']?state.selection:{status:'paused-'+state.phase},now:Date.now,
+  select:()=>state.phase==='ready'&&!(kind==='learning'&&state.capabilities?.learning===false)&&context.settings()[kind==='recovery'?'recoveryEnabled':'learningEnabled']?state.selection:{status:'paused-'+state.phase},now:Date.now,
   spawn:root=>{const child=cp.spawn(process.execPath,[path.join(__dirname,script),'watch','--config-dir',root],{detached:true,env:{...context.cleanEnv(),CLASH_NET_FOLLOW_ACTIVE:'1'},stdio:'inherit'});child.on('error',()=>{});return child},
   stop:follow.stopChild,cleanup:async(root,pid)=>{follow.cleanOwnedLocks(root,pid);if(kind==='learning')await monitor.clearOnLeave(root)},
   report:()=>{} })]));
@@ -68,13 +68,13 @@ async function run(){
   while(!stopping){
    queued=false;metrics.discoveries++;state=await context.discover();
    const key=JSON.stringify([state.selection?.root,state.selection?.pid]);if(key!==startKey){startKey=key;startingSince=Date.now()}
-   for(const root of router.discover())addWatch(root,name=>/^(config\.yaml|clash-verge\.yaml|verge\.yaml|profiles\.yaml|database\.sqlite(?:-wal)?)$/.test(name));
+   for(const root of router.discover())addWatch(root,name=>/^(native\.json|config\.yaml|clash-verge\.yaml|verge\.yaml|profiles\.yaml|database\.sqlite(?:-wal)?)$/.test(name));
    const config=context.settings(),values=context.variables(state,config),encoded=JSON.stringify(values);let environment=context.read('runtime.json')?.launchd||null;
    try{if(lastEnv!==encoded||Date.now()-lastAudit>=60000){environment=context.syncLaunchd(values);lastAudit=Date.now();if(environment.ok)lastEnv=encoded}}
    catch{environment={ok:false,error:'launchd-sync-failed'}}
    context.write('shell-env.zsh',context.shell(state,config));
    for(const worker of Object.values(workers))await worker.tick();
-   const workerStates=Object.fromEntries(Object.entries(workers).map(([kind,w])=>[kind,{enabled:config[kind==='recovery'?'recoveryEnabled':'learningEnabled'],pid:w.current?.child.pid||null,root:w.current?.selection.root||null}]));
+   const workerStates=Object.fromEntries(Object.entries(workers).map(([kind,w])=>[kind,{enabled:config[kind==='recovery'?'recoveryEnabled':'learningEnabled']&&!(kind==='learning'&&state.capabilities?.learning===false),reason:kind==='learning'&&state.capabilities?.learning===false?'native-app-managed-configuration':null,pid:w.current?.child.pid||null,root:w.current?.selection.root||null}]));
    // Do not export saved launchd baseline values or controller credentials in runtime/status.
    context.write('runtime.json',{...state,managerPid:process.pid,eventMode,metrics:{...metrics},workers:workerStates,launchd:environment?{ok:environment.ok,conflict:!!environment.conflict,error:environment.error}:null,updatedAt:new Date().toISOString()});
    if(stopping)break;

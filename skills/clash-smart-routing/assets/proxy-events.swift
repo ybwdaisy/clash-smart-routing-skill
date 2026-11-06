@@ -37,7 +37,7 @@ func send(_ event: String) {
     }
 }
 let center = NSWorkspace.shared.notificationCenter
-let names = ["FlClash.app", "Clash Verge.app", "Clash Verge Rev.app"]
+let names = ["FlClash.app", "Clash Verge.app", "Clash Verge Rev.app", "Clash.app"]
 for (notification, event) in [(NSWorkspace.didLaunchApplicationNotification, "launch"), (NSWorkspace.didTerminateApplicationNotification, "terminate")] {
     center.addObserver(forName: notification, object: nil, queue: .main) { info in
         if let app = info.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
