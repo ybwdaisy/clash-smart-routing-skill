@@ -1,5 +1,5 @@
 'use strict';
-const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),cp=require('node:child_process'),crypto=require('node:crypto');
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),cp=require('node:child_process'),crypto=require('node:crypto'),net=require('node:net');
 const router=require('./clash-router.cjs'),ready=require('./client-readiness.cjs');
 const KEYS=['http_proxy','https_proxy','all_proxy','no_proxy','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY'];
 const base=()=>process.env.PROXY_HOME||path.join(process.env.XDG_CONFIG_HOME||path.join(os.homedir(),'.config'),'proxy');
@@ -10,9 +10,20 @@ function cleanEnv(env=process.env){return Object.fromEntries(Object.entries(env)
 function defaults(){return {recoveryEnabled:true,learningEnabled:true,noProxy:['localhost','127.0.0.1','::1','.local','.lan','.internal']};}
 function settings(){return {...defaults(),...read('settings.json',{})};}
 function noProxy(values){if(!Array.isArray(values)||values.some(x=>typeof x!=='string'||!x||!/^[-A-Za-z0-9_.*:/]+$/.test(x)))throw Error('Invalid no_proxy entry');return [...new Set(values)].join(',');}
+function hostsNames(file){
+ if(!file)return [];
+ let text;try{text=fs.readFileSync(file,'utf8')}catch(e){if(e.code==='ENOENT')return [];throw e}
+ const names=new Set();
+ for(const line of text.split(/\r?\n/)){
+  const [ip,...aliases]=line.split('#',1)[0].trim().split(/\s+/);
+  if(!net.isIP(ip))continue;
+  for(const alias of aliases)if(/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.?$/.test(alias))names.add(alias.toLowerCase().replace(/\.$/,''));
+ }
+ return [...names];
+}
 function variables(context,config=settings()){
  if(context.phase!=='ready')return Object.fromEntries(KEYS.map(k=>[k,null]));
- const http='http://127.0.0.1:'+context.ports.http,socks=context.ports.socks?'socks5h://127.0.0.1:'+context.ports.socks:null,bypass=noProxy(config.noProxy);
+ const http='http://127.0.0.1:'+context.ports.http,socks=context.ports.socks?'socks5h://127.0.0.1:'+context.ports.socks:null,bypass=noProxy([...config.noProxy,...hostsNames(config.noProxyHostsFile)]);
  return {http_proxy:http,https_proxy:http,all_proxy:socks,no_proxy:bypass,HTTP_PROXY:http,HTTPS_PROXY:http,ALL_PROXY:socks,NO_PROXY:bypass};
 }
 const quote=value=>"'"+String(value).replace(/'/g,"'\\''")+"'";
@@ -68,4 +79,4 @@ function restoreLaunchd(ops=launchctl,ownership=read('environment-owner.json')){
  if(!ownership)return;for(const key of KEYS)if(ops('getenv',key)===ownership.last[key])ops(ownership.baseline[key]===null?'unsetenv':'setenv',key,ownership.baseline[key]===null?undefined:ownership.baseline[key]);
 }
 function guiReady(state){return state.transport==='native-vpn'?state.vpn?.connected===true:state.systemProxy?.matches===true;}
-module.exports={guiReady,defaults,KEYS,base,file,read,write,cleanEnv,settings,noProxy,variables,quote,shell,discover,ownsListener,systemMatches,launchctl,syncLaunchd,restoreLaunchd};
+module.exports={hostsNames,guiReady,defaults,KEYS,base,file,read,write,cleanEnv,settings,noProxy,variables,quote,shell,discover,ownsListener,systemMatches,launchctl,syncLaunchd,restoreLaunchd};
