@@ -57,6 +57,16 @@ Shell prompt/preexec hooks read the small shared env file without spawning disco
 
 HTTP/HTTPS and SOCKS ports are read separately from the active controller. Both uppercase and lowercase `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy` are synchronized. launchd writes are limited to these eight names and preserve a private baseline; unexpected manual changes cause an ownership conflict instead of overwrite.
 
+## Dynamic hosts bypass
+
+When the user requests direct access to local hosts mappings, merge `"noProxyHostsFile": "/etc/hosts"` into `~/.config/proxy/settings.json`, preserving its other settings and manual `noProxy` entries. The option is disabled when absent or empty. The source file is read only; no Gas Mask profile or system hosts file is edited. Use the active `/etc/hosts` rather than a saved Gas Mask profile so profile switches follow the system's current mappings.
+
+Each refresh reads valid IPv4/IPv6 records and their aliases, ignores comments and invalid records, normalizes names to lowercase, removes trailing dots, and deduplicates them with the manual list. All active mappings qualify, including public IP mappings. Derived names are not saved into `noProxy`: removing or commenting out a record removes its bypass unless it is also manually configured. A missing source file contributes no derived entries.
+
+The existing manager watches the source's parent directory so atomic replacements, direct edits, deletion and recreation trigger a refresh. Events use the existing 250ms debounce and 15-second fallback check. No new daemon or per-command file scan is added. The manager republishes both `no_proxy` and `NO_PROXY` to the shared shell environment and owned launchd environment. Existing terminal hooks load the update before subsequent commands; `proxy on` forces a fresh read. Existing GUI processes retain their inherited environment, and macOS system-proxy exclusions are unchanged.
+
+After installing changed manager code, restart the existing manager through its normal update flow once. Later hosts edits require no restart or manually maintained hostname list. Verify ordinary curl without `--noproxy` reaches a hosts-mapped destination directly, and an unrelated public destination still uses the proxy. Test edits and atomic replacement using temporary hosts fixtures; do not change real hosts just to exercise the watcher or commit private mappings.
+
 ## Boundaries and evidence
 
 System proxy covers Apps that honor macOS settings; launchctl environment affects **new processes only**. Existing GUI processes may need a restart and their own settings may override system proxy. Do not claim every App/all traffic is captured without TUN, or that an already running Codex process has inherited new variables. Never restart user Apps just to refresh environment without task authorization.

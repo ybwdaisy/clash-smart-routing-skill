@@ -69,7 +69,9 @@ async function run(){
    queued=false;metrics.discoveries++;state=await context.discover();
    const key=JSON.stringify([state.selection?.root,state.selection?.pid]);if(key!==startKey){startKey=key;startingSince=Date.now()}
    for(const root of router.discover())addWatch(root,name=>/^(native\.json|config\.yaml|clash-verge\.yaml|verge\.yaml|profiles\.yaml|database\.sqlite(?:-wal)?)$/.test(name));
-   const config=context.settings(),values=context.variables(state,config),encoded=JSON.stringify(values);let environment=context.read('runtime.json')?.launchd||null;
+   const config=context.settings();
+   if(config.noProxyHostsFile)addWatch(path.dirname(config.noProxyHostsFile),name=>name===path.basename(config.noProxyHostsFile));
+   const values=context.variables(state,config),encoded=JSON.stringify(values);let environment=context.read('runtime.json')?.launchd||null;
    try{if(lastEnv!==encoded||Date.now()-lastAudit>=60000){environment=context.syncLaunchd(values);lastAudit=Date.now();if(environment.ok)lastEnv=encoded}}
    catch{environment={ok:false,error:'launchd-sync-failed'}}
    context.write('shell-env.zsh',context.shell(state,config));
