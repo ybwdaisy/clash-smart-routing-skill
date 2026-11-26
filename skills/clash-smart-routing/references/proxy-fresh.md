@@ -4,9 +4,11 @@
 
 在目标电脑打开一个已导入订阅的 Clash Verge/Rev，并保持另一个代理客户端退出。用明确的 Node 入口避开旧 `proxy` 函数/别名：
 
+先将 `skill_dir` 设为完整 Skill 的实际绝对路径（包含 `SKILL.md` 的目录）。新终端不要假定已保留此前的变量。
+
 ```sh
-node ~/.codex/skills/clash-smart-routing/scripts/proxy-cli.cjs setup --fresh --dry-run
-node ~/.codex/skills/clash-smart-routing/scripts/proxy-cli.cjs setup --fresh
+node "$skill_dir/scripts/proxy-cli.cjs" setup --fresh --dry-run
+node "$skill_dir/scripts/proxy-cli.cjs" setup --fresh
 source ~/.config/zsh/proxy.zsh
 proxy on
 proxy status
@@ -41,4 +43,4 @@ proxy status
 
 安装提交前要求：新 manager 的 PID/状态匹配、当前监听及系统代理就绪、实际 ChatGPT 公开链路检查通过；原生辅助程序可用时，新 GUI 域 URLSession 探测也须通过；所有原始订阅文件哈希保持一致。原生客户端重新生成的原始规则必须先与原订阅一致，才能安装新 overlay。
 
-实现测试覆盖隔离用户目录的完整编排、真实 Mihomo 加载、后期写入失败和逐文件恢复。隔离编排中的 App/GUI 适配器是模拟的，不能声称它证明了目标电脑 App 重启或真实账户网络。目标机执行后的事务验收才是该机器的证据。外部公开探测不证明 Codex 登录或流式会话成功。
+实现测试覆盖隔离用户目录的完整编排、真实 Mihomo 加载、后期写入失败和逐文件恢复。隔离编排中的 App/GUI 适配器是模拟的，不能声称它证明了目标电脑 App 重启或真实账户网络。目标机执行后的事务验收才是该机器的证据。外部公开探测不证明所用 AI 工具登录或流式会话成功。

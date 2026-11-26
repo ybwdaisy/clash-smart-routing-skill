@@ -9,8 +9,9 @@ async function status(){
   workers:cached?.workers||{},recovery:workerReport(state,'recovery'),learning:workerReport(state,'learning')};
 }
 function summary(s,brief=false){const lines=['当前客户端：'+(s.clientName||'未确定')+'（自动跟随）'];
- if(s.phase==='ready')lines.push('代理端口：HTTP '+s.ports.http+(s.ports.socks?' / SOCKS '+s.ports.socks:''));else lines.push('状态：'+s.phase);
- lines.push('当前终端：'+(s.shell.optOut?'已关闭':s.shell.matches?'已同步':'未同步；运行 proxy on'), 'GUI 网络：'+(s.transport==='native-vpn'?(s.vpn?.connected?'原生 VPN 已连接':'原生 VPN 未连接'):(s.systemProxy?.matches?'系统代理已同步':'系统代理未就绪')), '新 GUI 进程环境：'+(s.launchd.matches?'已同步':'未同步'));
+ if(s.phase==='ready')lines.push('代理端口：HTTP '+s.ports.http+(s.ports.socks?' / SOCKS '+s.ports.socks:''));else lines.push('状态：'+s.phase+(s.reason?'（'+s.reason+'）':''));
+ lines.push('TUN 虚拟网卡：'+(s.tun?.enabled===true?'已开启':s.tun?.enabled===false?'已关闭':'未知')+(s.tun?.enabled===true&&s.tun.device?'（'+s.tun.device+'）':''));
+ lines.push('当前终端：'+(s.shell.optOut?'已关闭':s.shell.matches?'已同步':'未同步；运行 proxy on'), 'GUI 网络：'+(s.transport==='native-vpn'?(s.vpn?.connected?'原生 VPN 已连接':'原生 VPN 未连接'):(s.systemProxy?.matches?'系统代理已同步':s.tun?.enabled===true?'TUN 已开启；系统代理未开启或不匹配':'系统代理未就绪')), '新 GUI 进程环境：'+(s.launchd.matches?'已同步':'未同步'));
  if(!brief)lines.push('后台管理：'+(s.manager.running?'运行中':'未运行')+'；事件模式：'+s.eventMode,'旧 GUI/常驻进程不会被修改环境；必要时重新启动该 App。');return lines.join('\n');}
 async function feature(kind,args){const action=args[0]||'status';if(!['on','off','status'].includes(action))throw Error('Use on|off|status');
  if(action!=='status'){const settings=c.settings();settings[kind==='recovery'?'recoveryEnabled':'learningEnabled']=action==='on';c.write('settings.json',settings);}

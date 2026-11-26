@@ -33,30 +33,64 @@ function shell(context,config=settings()){
  lines.push('export PROXY_CONTEXT='+quote(context.generation||context.phase), '_PROXY_HTTP_PORT='+quote(context.phase==='ready'?context.ports.http:''));
  return lines.join('\n')+'\n';
 }
-function ownsListener(port,selection){
- const ids=cp.spawnSync('/usr/sbin/lsof',['-nP','-t','-a','-iTCP:'+port,'-sTCP:LISTEN'],{encoding:'utf8',timeout:2000});
- if(ids.status!==0)return false;
- const pids=[...new Set(ids.stdout.trim().split(/\s+/).filter(x=>/^\d+$/.test(x)))];if(!pids.length)return false;
- const processes=cp.spawnSync('/bin/ps',['-p',pids.join(','),'-o','comm='],{encoding:'utf8',timeout:2000});
- return processes.status===0&&processes.stdout.split('\n').some(x=>(x.trim().startsWith(selection.app+'/Contents/MacOS/')||selection.client==='clash-app'&&x.trim()===selection.app+'/Contents/PlugIns/ClashmacOSExtension.appex/Contents/MacOS/ClashmacOSExtension'));
+const {LABEL:VERGE_SERVICE,CORE:VERGE_CORE,processRows,serviceOwns}=require('./verge-service.cjs');
+function netstatPids(text,port){
+ const ids=[];
+ for(const line of text.split('\n')){
+  const fields=line.trim().split(/\s+/);
+  if(!/^tcp[46]$/.test(fields[0])||fields[5]!=='LISTEN'||!fields[3]?.endsWith('.'+port))continue;
+  const owner=fields.slice(6).find(s=>/^[^\s:]+:\d+$/.test(s));
+  if(owner)ids.push(owner.slice(owner.lastIndexOf(':')+1));
+ }
+ return [...new Set(ids)];
+}
+function ownsListener(port,selection,deps={}){
+ const run=deps.run||((cmd,args)=>cp.spawnSync(cmd,args,{encoding:'utf8',timeout:2000}));
+ const ids=run('/usr/sbin/lsof',['-nP','-t','-a','-iTCP:'+port,'-sTCP:LISTEN']);
+ let pids=ids.status===0?[...new Set(ids.stdout.trim().split(/\s+/).filter(x=>/^\d+$/.test(x)))]:[];
+ // A user's lsof cannot see root-owned service sockets on macOS. netstat
+ // still reports the kernel's listener PID; never accept a port by name alone.
+ if(!pids.length){const sockets=run('/usr/sbin/netstat',['-anv','-p','tcp']);if(sockets.status===0)pids=netstatPids(sockets.stdout,port)}
+ if(!pids.length)return false;
+ const processes=run('/bin/ps',['-p',pids.join(','),'-o','pid=,ppid=,uid=,comm=']);
+ if(processes.status!==0)return false;
+ for(const row of processRows(processes.stdout)){
+  if(row.exe.startsWith(selection.app+'/Contents/MacOS/')||selection.client==='clash-app'&&row.exe===selection.app+'/Contents/PlugIns/ClashmacOSExtension.appex/Contents/MacOS/ClashmacOSExtension')return true;
+  if(selection.client!=='verge'||row.exe!==VERGE_CORE)continue;
+  const service=run('/bin/launchctl',['print','system/'+VERGE_SERVICE]);
+  if(service.status!==0)continue;
+  const parents=run('/bin/ps',['-p',String(row.ppid),'-o','pid=,ppid=,uid=,comm=']);
+  if(parents.status===0&&serviceOwns(row,processRows(parents.stdout)[0],service.stdout))return true;
+ }
+ return false;
 }
 function systemMatches(proxy,ports){return ['http','https'].every(k=>proxy[k]?.enabled&&['127.0.0.1','localhost','::1'].includes(proxy[k].host)&&proxy[k].port===ports.http)&&(!ports.socks||(proxy.socks?.enabled&&proxy.socks.port===ports.socks&&['127.0.0.1','localhost','::1'].includes(proxy.socks.host)));}
 async function discover(deps={}){
  const selection=(deps.select||router.activeSelection)();
  if(selection.status!=='active')return {phase:selection.status,selection};
+ const clientName=selection.appName||path.basename(selection.app,'.app');let tun={enabled:null};
  try{
   const ctx=(deps.load||router.load)(selection.root),api=(deps.api||router.controller)(ctx,{followActive:true,timeoutMs:1500});
   const live=await api('GET','/configs');
+  tun={enabled:typeof live.tun?.enable==='boolean'?live.tun.enable:null,stack:live.tun?.stack||null,device:live.tun?.device||null};
   if(ctx.client==='clash-app'&&!ctx.config.rules?.length)await api('GET','/proxies');
   const ports={http:Number(live['mixed-port']||live.port||0),socks:Number(live['mixed-port']||live['socks-port']||0)};
   if(!Number.isInteger(ports.http)||ports.http<=0||ports.http>65535)throw Error('No supported HTTP listener');
   const owns=deps.owns||ownsListener,listen=deps.listener||ready.listener;
-  for(const port of new Set([ports.http,ports.socks].filter(Boolean)))if(!await listen(port)||!await owns(port,selection))throw Error('Listener is not owned by the active client');
+  for(const port of new Set([ports.http,ports.socks].filter(Boolean))){
+   if(!await listen(port))throw Error('Listener is not owned by the active client');
+   if(!await owns(port,selection)){
+    const service=require('./verge-service.cjs');
+    // HTTP and SOCKS share a mixed listener. A standalone SOCKS port cannot
+    // be verified by an HTTP request and continues to require OS ownership.
+    if(deps.owns||ctx.client!=='verge'||port!==ports.http||!service.socketPath()||!await service.verifyListener(port,api))throw Error('Listener is not owned by the active client');
+   }
+  }
   const proxy=(deps.systemProxy||ready.systemProxy)();
   const generation=crypto.createHash('sha256').update(JSON.stringify([selection.root,selection.pid,ports])).digest('hex').slice(0,16);
   const vpn=ctx.client==='clash-app'?(deps.vpnStatus||require('./clash-app-client.cjs').vpnStatus)():null;if(vpn&&!vpn.connected)throw Error('Clash native VPN is not connected');
-  return {phase:'ready',transport:vpn?'native-vpn':'system-proxy',vpn,capabilities:ctx.capabilities,selection,clientName:selection.appName||path.basename(selection.app,'.app'),ports,generation,systemProxy:{matches:systemMatches(proxy,ports)},checkedAt:Date.now()};
- }catch(e){return {phase:'starting',selection,reason:e.message,checkedAt:Date.now()};}
+  return {phase:'ready',transport:vpn?'native-vpn':'system-proxy',vpn,tun,capabilities:ctx.capabilities,selection,clientName,ports,generation,systemProxy:{matches:systemMatches(proxy,ports)},checkedAt:Date.now()};
+ }catch(e){return {phase:'starting',selection,clientName,tun,reason:e.message,checkedAt:Date.now()};}
 }
 function launchctl(action,key,value){
  if(!KEYS.includes(key))throw Error('Unexpected proxy variable');
@@ -79,4 +113,4 @@ function restoreLaunchd(ops=launchctl,ownership=read('environment-owner.json')){
  if(!ownership)return;for(const key of KEYS)if(ops('getenv',key)===ownership.last[key])ops(ownership.baseline[key]===null?'unsetenv':'setenv',key,ownership.baseline[key]===null?undefined:ownership.baseline[key]);
 }
 function guiReady(state){return state.transport==='native-vpn'?state.vpn?.connected===true:state.systemProxy?.matches===true;}
-module.exports={hostsNames,guiReady,defaults,KEYS,base,file,read,write,cleanEnv,settings,noProxy,variables,quote,shell,discover,ownsListener,systemMatches,launchctl,syncLaunchd,restoreLaunchd};
+module.exports={hostsNames,netstatPids,processRows,serviceOwns,guiReady,defaults,KEYS,base,file,read,write,cleanEnv,settings,noProxy,variables,quote,shell,discover,ownsListener,systemMatches,launchctl,syncLaunchd,restoreLaunchd};
