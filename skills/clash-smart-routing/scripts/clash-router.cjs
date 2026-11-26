@@ -83,7 +83,9 @@ function resolveConfigDir(explicit, deps = {}) {
 function controller(ctx, options = {}) {
   if(ctx.client==='clash-app')return require('./clash-app-client.cjs').controller(ctx,options);
   const base = fs.existsSync(path.join(ctx.root, 'config.yaml')) ? read(path.join(ctx.root, 'config.yaml')) : {};
-  const socket = ctx.config['external-controller-unix'] ?? base['external-controller-unix'];
+  // Service mode can leave a stale user-mode socket in the generated config.
+  // Prefer only a live root service whose core explicitly owns this UID's socket.
+  const socket = (ctx.client==='verge'?require('./verge-service.cjs').socketPath():null) || (ctx.config['external-controller-unix'] ?? base['external-controller-unix']);
   const useSocket = socket && path.isAbsolute(socket) && fs.existsSync(socket) && fs.statSync(socket).isSocket();
   const address = ctx.config['external-controller'] ?? base['external-controller'];
   if (!useSocket && (!address || !/^(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]|\[::\]):\d+$/.test(address)))
