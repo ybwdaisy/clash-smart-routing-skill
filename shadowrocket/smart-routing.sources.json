@@ -1,13 +1,13 @@
 {
   "format": 1,
-  "sourceCommit": "f9161b70a4830aedf47d8a1d222d0e18f7c43b87",
+  "sourceCommit": "76d20ebad6afa2f655dcae3cd061e810851da1c3",
   "updateURL": "https://raw.githubusercontent.com/ybwdaisy/clash-smart-routing-skill/main/shadowrocket/smart-routing.conf",
-  "outputSha256": "89e1e35aeaa0242ef161ff652f13571123f044dc3585bda3c34245709092941f",
+  "outputSha256": "7643f5dbe505f13f97632aae50958861bc2643f730dc7b85e82bc5aa85db0abc",
   "baseSha256": "f26d0ef8144ba0a4955eb63951ab127719c7c0257d3c70a3f8949fc8e8ed97df",
   "sources": {
     "ai": {
       "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ai-!cn.list",
-      "sha256": "51fdd3fb045244cc263939274a64eeeb054f6e42109a9f9a58df6d7410e20b9e"
+      "sha256": "e7a0b41f23edf4c4a19638d4888e95e66749754c6bfb1b53b3ef3a5cf09169f7"
     },
     "apple-ai": {
       "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple-intelligence.list",
@@ -50,7 +50,7 @@
     "openai": {
       "url": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/OpenAi.list",
       "rules": 17,
-      "sha256": "c4f839e4dda6cb96e4373349c72b4e5f848b8ae03564c0d0eae0873955310129"
+      "sha256": "3fde01190c82d9911cb247d99e941cb3b8e53c410e574240bc7d2a9227b153ab"
     },
     "claude": {
       "url": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Shadowrocket/Claude/Claude.list",
