@@ -78,6 +78,8 @@ After installing changed manager code, restart the existing manager through its 
 
 ## Boundaries and evidence
 
+For an explicitly requested client test with a bounded return to Verge, use the [independent cutover guard](client-switch.md). Its 30-second budget spans target startup and verified recovery, preserves inherited compatibility ports, and never installs itself from an ordinary skill update. Import/file synchronization does not restart the manager or the current App. Generic setup file-transaction timing is separate from this client-test window.
+
 System proxy covers Apps that honor macOS settings; launchctl environment affects **new processes only**. Existing GUI processes may need a restart and their own settings may override system proxy. Do not claim every App/all traffic is captured without TUN, or that an already running AI client process has inherited new variables. Never restart user Apps just to refresh environment without task authorization.
 
 Preserve main selector → existing automatic group → fixed node. Manual main-selector changes pause recovery; Hong Kong is excluded only from recovery candidates. AI follows the main selector. Keep original subscriptions untouched and do not add an independent AI strategy.

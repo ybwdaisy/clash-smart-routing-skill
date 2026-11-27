@@ -67,14 +67,7 @@ function running() {
   if (r.status !== 0) throw Error('Unable to check FlClash process state');
   return r.stdout.split('\n').some(x => x.trim() === APP + '/Contents/MacOS/FlClash');
 }
-async function quit() {
-  if (!running()) return;
-  // AppleEvent can report a disconnected target while native shutdown is still
-  // finishing. Wait for the process to exit before deciding whether quit failed.
-  cp.spawnSync('/usr/bin/osascript', ['-e', 'tell application id "com.follow.clash" to quit'], {encoding: 'utf8', timeout: 10000});
-  for (let i = 0; i < 100 && running(); i++) await pause(100);
-  if (running()) throw Error('FlClash is still running; database was not changed');
-}
+async function quit(options = {}) { return require('./flclash-lifecycle.cjs').quit(options); }
 function open() {
   const r = cp.spawnSync('/usr/bin/open', ['-a', APP], {encoding: 'utf8', timeout: 5000});
   if (r.status !== 0) throw Error('FlClash could not be reopened');
