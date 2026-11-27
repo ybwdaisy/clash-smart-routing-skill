@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "sourceCommit": "76d20ebad6afa2f655dcae3cd061e810851da1c3",
+  "sourceCommit": "3fba4c320c2da3c55dd87244766f4bf43d12982c",
   "updateURL": "https://raw.githubusercontent.com/ybwdaisy/clash-smart-routing-skill/main/shadowrocket/smart-routing.conf",
-  "outputSha256": "7643f5dbe505f13f97632aae50958861bc2643f730dc7b85e82bc5aa85db0abc",
+  "outputSha256": "bde9032e59b11a91a3b9a2f1afdb67373bb647f91fa960e2d07c0badb48f5cf4",
   "baseSha256": "f26d0ef8144ba0a4955eb63951ab127719c7c0257d3c70a3f8949fc8e8ed97df",
   "sources": {
     "ai": {
