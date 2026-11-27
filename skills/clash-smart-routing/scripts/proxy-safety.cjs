@@ -18,7 +18,8 @@ async function begin(files,{timeoutMs=180000,extraAgents=[]}={}){
  if(path.basename(fallback)==='com.hako.network')throw Error('Native Clash setup needs a configured Clash Verge fallback before switching');
  const fallbackApp=selected.status==='active'&&selected.root===fallback?selected.app:null;
  const started=cp.spawnSync('/bin/ps',['-p',String(process.pid),'-o','lstart='],{encoding:'utf8'}).stdout.trim();
- const journal={version:1,phase:'armed',deadline:Date.now()+timeoutMs,workerPid:process.pid,workerStarted:started,entries,agents,fallback,fallbackApp,environmentOwner:c.read('environment-owner.json'),launchd:Object.fromEntries(c.KEYS.map(k=>[k,c.launchctl('getenv',k)])),label:'io.github.clash-smart-routing.proxy-guard-'+path.basename(dir)};
+ const snapshot=await fallbackSnapshot(fallback,fallbackApp);
+ const journal={fallbackSnapshot:snapshot,workerExe:process.execPath,workerMayTerminate:['proxy-cli.cjs','proxy-install.cjs','proxy-safety.cjs'].some(name=>process.argv[1]===path.join(__dirname,name)),version:1,phase:'armed',deadline:Date.now()+timeoutMs,workerPid:process.pid,workerStarted:started,entries,agents,fallback,fallbackApp,environmentOwner:c.read('environment-owner.json'),launchd:Object.fromEntries(c.KEYS.map(k=>[k,c.launchctl('getenv',k)])),label:'io.github.clash-smart-routing.proxy-guard-'+path.basename(dir)};
  save(dir,journal);
  const plist=path.join(os.homedir(),'Library/LaunchAgents',journal.label+'.plist');
  const args=[process.execPath,fs.realpathSync(__filename),'guard',dir].map(x=>'<string>'+xml(x)+'</string>').join('');
@@ -28,55 +29,65 @@ async function begin(files,{timeoutMs=180000,extraAgents=[]}={}){
  if(!fs.existsSync(path.join(dir,'ready')))throw Error('Independent guard did not acknowledge readiness');
  return dir;
 }
-function active(j){if(['rolling-back','rolled-back','committed','failed'].includes(j.phase)||Date.now()>j.deadline)throw Error('Transaction is no longer active');}
+const revoked=new Set(['rolling-back','network-restored','rolled-back','committed','failed','recovery-failed']);
+function active(j){if(revoked.has(j.phase)||Date.now()>j.deadline)throw Error('Transaction is no longer active');}
 function write(dir,file,data,mode=0o600){const j=read(dir);active(j);const e=j.entries.find(x=>x.file===file);if(!e)throw Error('File was not included in transaction');e.expected={exists:true,hash:hash(data)};save(dir,j);r.writePrivate(file,data);fs.chmodSync(file,mode);}
 function remove(dir,file){const j=read(dir);active(j);const e=j.entries.find(x=>x.file===file);if(!e)throw Error('File was not included in transaction');e.expected={exists:false,hash:null};save(dir,j);fs.rmSync(file,{force:true});}
-function stage(dir,phase){const j=read(dir);if(j.phase==='rolling-back'||j.phase==='rolled-back')throw Error('Rollback already began');save(dir,{...j,phase});}
+function stage(dir,phase){const j=read(dir);active(j);save(dir,{...j,phase});}
 function retire(dir){const j=read(dir),target='gui/'+process.getuid()+'/'+j.label;if(loaded(j.label))cp.spawnSync('/bin/launchctl',['bootout',target],{encoding:'utf8',timeout:5000});fs.rmSync(path.join(os.homedir(),'Library/LaunchAgents',j.label+'.plist'),{force:true});}
 function commit(dir){stage(dir,'committed');retire(dir);}
-function fail(dir,message){const j=read(dir);save(dir,{...j,phase:'failed',failure:message});}
-async function restoreFiles(dir){const j=read(dir),conflicts=[];for(const e of [...j.entries].reverse()){
- const actual=inspect(e.file);if(actual.exists===e.original.exists&&actual.hash===e.original.hash)continue;
+function fail(dir,message){const j=read(dir);if(revoked.has(j.phase))return;save(dir,{...j,phase:'failed',failure:message});}
+async function restoreFiles(dir,{check=()=>{}}={}){const j=read(dir),conflicts=[];for(const e of [...j.entries].reverse()){
+ check();const actual=inspect(e.file);if(actual.exists===e.original.exists&&actual.hash===e.original.hash)continue;
  if(!e.nativeGenerated&&(actual.exists!==e.expected.exists||actual.hash!==e.expected.hash)){conflicts.push(e.file);continue;}
  if(e.original.exists){r.writePrivate(e.file,fs.readFileSync(e.backup));fs.chmodSync(e.file,e.original.mode||0o600)}else fs.rmSync(e.file,{force:true});
  }return conflicts;
 }
-async function restoreVerge(root,app){
- const isFl=path.basename(root)==='com.follow.clash';
- // Native Clash's VPN can outlive its GUI. Disconnect only its bundle-matched
- // service before restoring Verge; leave OpenVPN and other services untouched.
- if(path.basename(root)!=='com.hako.network'){await require('./clash-app-client.cjs').disconnect();cp.spawnSync('/usr/bin/osascript',['-e','tell application \"/Applications/Clash.app\" to quit'],{encoding:'utf8',timeout:5000});}
- const fl=require('./flclash-client.cjs');if(!isFl)try{await fl.quit()}catch{const p=cp.spawnSync('/bin/ps',['-axo','pid=,comm='],{encoding:'utf8'});for(const line of p.stdout.split('\n')){const m=line.trim().match(/^(\d+)\s+(.*)$/);if(m&&m[2].startsWith('/Applications/FlClash.app/Contents/MacOS/'))try{process.kill(Number(m[1]),'SIGTERM')}catch{}}}
- if(isFl)cp.spawnSync('/usr/bin/osascript',['-e','tell application "Clash Verge" to quit'],{encoding:'utf8',timeout:8000});
- cp.spawnSync('/usr/bin/open',['-a',app||(isFl?'/Applications/FlClash.app':'/Applications/Clash Verge.app')],{encoding:'utf8',timeout:5000});
- let ctx;for(let i=0;i<60;i++){try{ctx=r.load(root);await r.controller(ctx,{followActive:false,timeoutMs:1000})('GET','/configs');break}catch{ctx=null;await pause(500)}}
- if(!ctx)throw Error('Verge controller did not restart');
- // The client normally restores its own system proxy. Only repair matching loopback endpoints if necessary.
- const port=Number(ctx.config['mixed-port']||ctx.config.port);let proxy=require('./client-readiness.cjs').systemProxy();
- if(!c.systemMatches(proxy,{http:port,socks:port})){
-  const services=cp.spawnSync('/usr/sbin/networksetup',['-listallnetworkservices'],{encoding:'utf8'}).stdout.split('\n').slice(1).filter(s=>s&&!s.startsWith('*'));
-  for(const name of services)for(const kind of ['web','secureweb','socksfirewall']){
-   const old=cp.spawnSync('/usr/sbin/networksetup',['-get'+kind+'proxy',name],{encoding:'utf8'}).stdout;
-   if(!/Server: (127\.0\.0\.1|localhost)/.test(old))continue;
-   cp.spawnSync('/usr/sbin/networksetup',['-set'+kind+'proxy',name,'127.0.0.1',String(port)],{encoding:'utf8'});cp.spawnSync('/usr/sbin/networksetup',['-set'+kind+'proxystate',name,'on'],{encoding:'utf8'});
-  }
- }
- const rec=require('./node-recovery.cjs'),api=r.controller(ctx,{followActive:false}),p=(await api('GET','/proxies')).proxies,main=r.engine.upstreamTarget(ctx.config,{}),node=rec.resolve(p,main);
- const probe=await rec.publicProbe(ctx,api,main,node.node);return {client:ctx.client,port,node:node.node,publicHttp:probe.httpStatus,publicReachable:probe.publicEndpointReachable};
+async function fallbackSnapshot(root,app){
+ const ctx=r.load(root),client=ctx.client||'verge',fallbackApp=app||(client==='flclash'?'/Applications/FlClash.app':'/Applications/Clash Verge.app');
+ const config=JSON.parse(JSON.stringify(ctx.config));let selections={};
+ const selected=r.activeSelection();if(selected.status==='active'&&selected.root===root){try{const api=r.controller(ctx,{followActive:false,timeoutMs:800}),live=await api('GET','/configs'),catalog=(await api('GET','/proxies')).proxies;config.tun={...config.tun,enable:live.tun?.enable};for(const [name,p]of Object.entries(catalog)){if(p.type==='Selector')selections[name]=p.now;if(p.type==='URLTest')selections[name]=p.fixed||null;}}catch{}}
+ const service=client==='verge'&&selected.root===root?require('./verge-service.cjs').socketPath():null;
+ const transport=service?{socketPath:service,secret:config.secret||''}:config['external-controller-unix']?{socketPath:config['external-controller-unix'],secret:config.secret||''}:{url:'http://'+String(config['external-controller']||'').replace(/^0\.0\.0\.0:/,'127.0.0.1:'),secret:config.secret||''};
+ const budget=new (require('./proxy-deadline.cjs').Budget)(require('./proxy-deadline.cjs').monotonicMs()+15000),mac=require('./proxy-cutover-macos.cjs'),network=[];
+ await budget.step('capture owned network slots',async step=>{const services=(await mac.command('/usr/sbin/networksetup',['-listallnetworkservices'],step)).split('\n').slice(1).filter(x=>x&&!x.startsWith('*'));for(const name of services){const kinds=[];for(const kind of ['web','secureweb','socksfirewall']){const text=await mac.command('/usr/sbin/networksetup',['-get'+kind+'proxy',name],step);if(/^Server: (127\.0\.0\.1|localhost)$/m.test(text)&&new RegExp('^Port: '+config['mixed-port']+'$','m').test(text))kinds.push(kind)}if(kinds.length){const bypass=(await mac.command('/usr/sbin/networksetup',['-getproxybypassdomains',name],step)).trim().split('\n');network.push({name,kinds,bypass:bypass[0].startsWith("There aren't")?[]:bypass})}}});budget.close();
+ return {client,root,app:fallbackApp,config,selections,transport,network};
 }
-async function rollback(dir){
- const claim=path.join(dir,'rollback-claimed');try{fs.writeFileSync(claim,'1',{flag:'wx',mode:0o600})}catch(e){if(e.code==='EEXIST')return;throw e}
+async function restoreVerge(root,app,options={}){
+ const {monotonicMs}=require('./proxy-deadline.cjs'),engine=require('./proxy-cutover.cjs'),mac=require('./proxy-cutover-macos.cjs'),life=require('./flclash-lifecycle.cjs');
+ const startedAt=options.startedAt??monotonicMs(),deadline=options.deadline??startedAt+30000;
+ const fallback=options.snapshot||await fallbackSnapshot(root,app),rows=life.rows(),native=require('./clash-app-client.cjs');
+ const hasNative=rows.some(p=>[mac.NATIVE,mac.EXT].includes(p.exe)),hasFl=rows.some(p=>[life.APP,life.CORE].includes(p.exe));if(hasNative&&hasFl)throw Error('Ambiguous target clients; no broad shutdown');
+ let vpn;try{vpn=native.vpnStatus()}catch(e){if(e.code!=='NO_NATIVE_VPN')throw e}
+ const client=hasNative||fallback.client==='flclash'?'clash-app':'flclash',target={client,vpnId:vpn?.id,processes:rows.filter(p=>(client==='clash-app'?[mac.NATIVE,mac.EXT]:[life.APP,life.CORE]).includes(p.exe))};
+ const plan={version:1,port:Number(fallback.config['mixed-port']),compatibilityPorts:[...new Set((fallback.config.listeners||[]).filter(x=>x.type==='mixed'&&x.listen==='127.0.0.1').map(x=>Number(x.port)))],uiPrepared:true,compatibilityVerified:true,fallback,target,resumeFallbackLaunch:rows.some(p=>p.exe===fallback.app+'/Contents/MacOS/'+(fallback.client==='flclash'?'FlClash':'clash-verge'))};plan.compatibilityPorts=plan.compatibilityPorts.filter(p=>p!==plan.port);
+ const ops=mac.create(plan);if(options.prepareFallback)ops.prepareFallback=options.prepareFallback;
+ const result=await engine.recover(plan,ops,{startedAt,deadline,onState:options.onState});if(!result.ok)throw Error(result.error);
+ return {...result,client:fallback.client,port:plan.port,publicHttp:200,publicReachable:true};
+}
+async function rollback(dir,deps={}){
+ const claim=path.join(dir,'rollback-claimed');try{fs.writeFileSync(claim,'1',{flag:'wx',mode:0o600})}catch(e){if(e.code==='EEXIST')return read(dir);throw e}
  let j=read(dir);save(dir,{...j,phase:'rolling-back'});
- if(j.workerPid&&j.workerPid!==process.pid){const start=cp.spawnSync('/bin/ps',['-p',String(j.workerPid),'-o','lstart='],{encoding:'utf8'}).stdout.trim();if(start&&start===j.workerStarted)try{process.kill(j.workerPid,'SIGTERM')}catch{}}
- try{manager.stop()}catch{}for(const a of j.agents)try{manager.stop(a.label)}catch{}
- if(j.fresh){try{const selected=r.activeSelection();if(selected.status==='active'&&selected.root===j.fresh.root)await require('./proxy-system.cjs').quit(selected)}catch{}}
- const owner=c.read('environment-owner.json');for(const k of c.KEYS){const value=c.launchctl('getenv',k);if(!owner||value===owner.last[k]){c.launchctl(j.launchd[k]===null?'unsetenv':'setenv',k,j.launchd[k]===null?undefined:j.launchd[k]);if(owner)owner.last[k]=j.launchd[k];}}if(owner)c.write('environment-owner.json',{...(j.environmentOwner||{baseline:j.launchd}),last:owner.last});
- const conflicts=await restoreFiles(dir);let fallback,error;
- if(j.nativePreferences){try{const fl=require('./flclash-client.cjs');await fl.quit();const n=j.nativePreferences;const prefs=fl.preferences(n.root);for(const x of n.changes){if(String(prefs[x.section][x.key])===String(x.after))prefs[x.section][x.key]=x.before;else conflicts.push('FlClash native preference '+x.section+'.'+x.key)}fl.writePreferences(prefs)}catch{conflicts.push('FlClash native preferences')}}
- try{fallback=await restoreVerge(j.fallback,j.fallbackApp)}catch(e){error=e.message}
- for(const a of j.agents)if(a.loaded&&fs.existsSync(a.file)&&!loaded(a.label))cp.spawnSync('/bin/launchctl',['bootstrap','gui/'+process.getuid(),a.file],{encoding:'utf8',timeout:10000});
- j=read(dir);save(dir,{...j,phase:'rolled-back',conflicts,fallback,error,finishedAt:new Date().toISOString()});
+ // Kill only our own setup CLI, never a Codex/other agent that imported this API.
+ if(j.workerMayTerminate&&j.workerPid&&j.workerPid!==process.pid){const row=require('./flclash-lifecycle.cjs').rows().find(p=>p.pid===j.workerPid);if(row&&row.born===j.workerStarted&&row.exe===j.workerExe&&row.ruid===process.getuid())try{process.kill(j.workerPid,'SIGTERM')}catch{}}
+ const startedAt=require('./proxy-deadline.cjs').monotonicMs(),conflicts=[];let fallback,error;
+ try{
+  fallback=await (deps.restoreVerge||restoreVerge)(j.fallback,j.fallbackApp,{snapshot:j.fallbackSnapshot,startedAt,deadline:startedAt+30000,prepareFallback:async(_,step)=>{conflicts.push(...await restoreFiles(dir,{check:step.check}))}});
+  if(!fallback?.publicReachable)throw Error('Fallback public connectivity is not verified');
+ }catch(e){error=e.message;j=read(dir);save(dir,{...j,phase:'recovery-failed',conflicts,error,finishedAt:new Date().toISOString()});return read(dir)}
+ // Connectivity is durable evidence separate from slower file/service cleanup.
+ // Stop/reinstall of the manager must not consume the outage recovery reserve.
+ j=read(dir);save(dir,{...j,phase:'network-restored',fallback,networkRestoredAt:new Date().toISOString(),conflicts});
+ for(const label of new Set([manager.LABEL,...j.agents.map(a=>a.label)]))try{(deps.stopManager||manager.stop)(label)}catch{}
+ if(deps.restoreEnvironment)await deps.restoreEnvironment(j);else{
+  const owner=c.read('environment-owner.json');for(const k of c.KEYS){const value=c.launchctl('getenv',k);if(!owner||value===owner.last[k]){c.launchctl(j.launchd[k]===null?'unsetenv':'setenv',k,j.launchd[k]===null?undefined:j.launchd[k]);if(owner)owner.last[k]=j.launchd[k];}}if(owner)c.write('environment-owner.json',{...(j.environmentOwner||{baseline:j.launchd}),last:owner.last});
+ }
+ if(j.nativePreferences){try{const fl=require('./flclash-client.cjs');if(fl.running())conflicts.push('FlClash preferences retained while its working client is running');else{const n=j.nativePreferences,prefs=fl.preferences(n.root);for(const x of n.changes){if(String(prefs[x.section][x.key])===String(x.after))prefs[x.section][x.key]=x.before;else conflicts.push('FlClash native preference '+x.section+'.'+x.key)}fl.writePreferences(prefs)}}catch{conflicts.push('FlClash native preferences')}}
+ for(const a of j.agents)if(a.loaded&&fs.existsSync(a.file)){
+  if(deps.restoreAgent)await deps.restoreAgent(a);else if(!loaded(a.label))cp.spawnSync('/bin/launchctl',['bootstrap','gui/'+process.getuid(),a.file],{encoding:'utf8',timeout:10000});
+ }
+ j=read(dir);save(dir,{...j,phase:'rolled-back',conflicts,fallback,finishedAt:new Date().toISOString()});return read(dir);
 }
-async function guard(dir){fs.writeFileSync(path.join(dir,'ready'),String(process.pid),{mode:0o600});while(true){const j=read(dir);if(['committed','rolled-back'].includes(j.phase))return;if(j.phase==='failed'||Date.now()>j.deadline){await rollback(dir);fs.rmSync(path.join(os.homedir(),'Library/LaunchAgents',j.label+'.plist'),{force:true});const cleanup=cp.spawn('/bin/launchctl',['bootout','gui/'+process.getuid()+'/'+j.label],{detached:true,stdio:'ignore',env:c.cleanEnv()});cleanup.unref();return;}await pause(500)}}
+async function guard(dir){fs.writeFileSync(path.join(dir,'ready'),String(process.pid),{mode:0o600});while(true){const j=read(dir);if(['committed','rolled-back','recovery-failed'].includes(j.phase))return;if(j.phase==='failed'||Date.now()>j.deadline){await rollback(dir);fs.rmSync(path.join(os.homedir(),'Library/LaunchAgents',j.label+'.plist'),{force:true});const cleanup=cp.spawn('/bin/launchctl',['bootout','gui/'+process.getuid()+'/'+j.label],{detached:true,stdio:'ignore',env:c.cleanEnv()});cleanup.unref();return;}await pause(500)}}
 if(require.main===module&&process.argv[2]==='guard')guard(process.argv[3]).catch(e=>{console.error(e.message);process.exitCode=1});
-module.exports={begin,read,save,include,write,remove,stage,commit,fail,restoreFiles,rollback,retire,restoreVerge};
+module.exports={fallbackSnapshot,begin,read,save,include,write,remove,stage,commit,fail,restoreFiles,rollback,retire,restoreVerge};

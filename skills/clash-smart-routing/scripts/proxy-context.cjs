@@ -64,6 +64,12 @@ function ownsListener(port,selection,deps={}){
  }
  return false;
 }
+function flCoreOwns(selection,run=(cmd,args)=>cp.spawnSync(cmd,args,{encoding:'utf8',timeout:2000})){
+ if(selection.client!=='flclash'||!Number.isInteger(selection.pid))return false;
+ const ps=run('/bin/ps',['-axo','pid=,ppid=,uid=,comm=']);if(ps.status!==0)return false;
+ const rows=processRows(ps.stdout),gui=rows.find(x=>x.pid===selection.pid);
+ return gui?.uid===process.getuid()&&gui.exe===selection.app+'/Contents/MacOS/FlClash'&&rows.some(x=>x.exe===selection.app+'/Contents/MacOS/FlClashCore'&&x.uid===0&&x.ppid===gui.pid);
+}
 function systemMatches(proxy,ports){return ['http','https'].every(k=>proxy[k]?.enabled&&['127.0.0.1','localhost','::1'].includes(proxy[k].host)&&proxy[k].port===ports.http)&&(!ports.socks||(proxy.socks?.enabled&&proxy.socks.port===ports.socks&&['127.0.0.1','localhost','::1'].includes(proxy.socks.host)));}
 async function discover(deps={}){
  const selection=(deps.select||router.activeSelection)();
@@ -83,7 +89,8 @@ async function discover(deps={}){
     const service=require('./verge-service.cjs');
     // HTTP and SOCKS share a mixed listener. A standalone SOCKS port cannot
     // be verified by an HTTP request and continues to require OS ownership.
-    if(deps.owns||ctx.client!=='verge'||port!==ports.http||!service.socketPath()||!await service.verifyListener(port,api))throw Error('Listener is not owned by the active client');
+    const rootCore=ctx.client==='verge'?!!service.socketPath():ctx.client==='flclash'?flCoreOwns(selection):false;
+    if(deps.owns||port!==ports.http||!rootCore||!await service.verifyListener(port,api))throw Error('Listener is not owned by the active client');
    }
   }
   const proxy=(deps.systemProxy||ready.systemProxy)();
@@ -113,4 +120,4 @@ function restoreLaunchd(ops=launchctl,ownership=read('environment-owner.json')){
  if(!ownership)return;for(const key of KEYS)if(ops('getenv',key)===ownership.last[key])ops(ownership.baseline[key]===null?'unsetenv':'setenv',key,ownership.baseline[key]===null?undefined:ownership.baseline[key]);
 }
 function guiReady(state){return state.transport==='native-vpn'?state.vpn?.connected===true:state.systemProxy?.matches===true;}
-module.exports={hostsNames,netstatPids,processRows,serviceOwns,guiReady,defaults,KEYS,base,file,read,write,cleanEnv,settings,noProxy,variables,quote,shell,discover,ownsListener,systemMatches,launchctl,syncLaunchd,restoreLaunchd};
+module.exports={flCoreOwns,netstatPids,processRows,serviceOwns,hostsNames,guiReady,defaults,KEYS,base,file,read,write,cleanEnv,settings,noProxy,variables,quote,shell,discover,ownsListener,systemMatches,launchctl,syncLaunchd,restoreLaunchd};

@@ -59,6 +59,8 @@ proxy config verify      # 核验分流规则
 
 安装后保持完整 Skill 和 Node.js 路径稳定；移动目录后，从新位置重跑 `setup`。更新 Skill 后也重跑 `setup`。`proxy setup --rollback` 回退上次集成，`proxy uninstall` 恢复原终端/后台配置，私有备份保留。旧 `clash-net` 命令和两个旧后台启动项会在备份后迁移。详见 [proxy 使用与边界](skills/clash-smart-routing/references/proxy.md)。
 
+让 AI 试切客户端时，可启用[独立回退守护](skills/clash-smart-routing/references/client-switch.md)：以单次 30 秒为预算，保留端口和现有进程兼容入口，按实际连通判定恢复。它不会随更新自动启用；“当前客户端保持不动”时只做隔离验证。订阅或系统故障导致恢复失败时会明确报告。
+
 **旧配置全部弃用、用新版重建（macOS Clash Verge/Rev）：** 仅在你明确要清理旧配置时执行；以下继续使用前面定义的 `skill_dir`，新终端需先设置为实际 Skill 路径。
 
 ```sh

@@ -73,7 +73,7 @@ async function setup({dryRun=false,fresh=false,platform=process.platform}={}){
   safety.commit(transaction);
   return {installed:true,fresh,cleanup:fresh?{files:cleanup.edits.length,subscriptionsUnchanged:true}:undefined,clientName:state.clientName,ports:state.ports,eventMode:state.eventMode,manager:{...installed,...manager.serviceStatus()},backup:transaction,verification:{publicEndpoint:true,gui:gui.skipped?'skipped':true},
    shellActivation:'source ~/.config/zsh/proxy.zsh',guiNote:'launchctl changes apply to newly launched processes; restart an affected existing App if it uses old proxy variables'};
- }catch(e){safety.fail(transaction,e.message);throw Error(e.message+'; independent guard will restore Clash Verge. Backup: '+transaction);}
+ }catch(e){safety.fail(transaction,e.message);throw Error(e.message+'; independent guard will attempt and verify fallback. Backup: '+transaction);}
 }
 async function uninstall(){
  const installation=c.read('installation.json');if(!installation)throw Error('No managed proxy installation found');
@@ -82,6 +82,6 @@ async function uninstall(){
  for(const agent of saved.agents)if(agent.loaded&&fs.existsSync(agent.file)&&!manager.loaded(agent.label))cp.spawnSync('/bin/launchctl',['bootstrap','gui/'+process.getuid(),agent.file],{encoding:'utf8',timeout:10000});
  c.write('shell-env.zsh',c.shell({phase:'uninstalled'}));c.write('runtime.json',{phase:'uninstalled'});return {uninstalled:true,conflicts,privateBackupsRetained:true};
 }
-async function rollback(){const installation=c.read('installation.json');if(!installation)throw Error('No installation to roll back');const dir=installation.last;if(!dir.startsWith(c.file('backups/') )||!fs.existsSync(require('node:path').join(dir,'journal.json')))throw Error('Invalid installation journal');await safety.rollback(dir);safety.retire(dir);return {rolledBack:true,backup:dir};}
+async function rollback(){const installation=c.read('installation.json');if(!installation)throw Error('No installation to roll back');const dir=installation.last;if(!dir.startsWith(c.file('backups/') )||!fs.existsSync(require('node:path').join(dir,'journal.json')))throw Error('Invalid installation journal');const result=await safety.rollback(dir);safety.retire(dir);if(result?.phase==='recovery-failed')throw Error('Recovery was not verified: '+result.error+'; backup: '+dir);return {rolledBack:true,backup:dir};}
 function managerReady(state,service,root){return !!(service.running&&service.pid&&state?.phase==='ready'&&state.managerPid===service.pid&&state.selection.root===root&&state.launchd?.ok);}
 module.exports={managerReady,rollback,paths,updateZshrc,legacyNoProxy,checkOwnership,setup,uninstall};
